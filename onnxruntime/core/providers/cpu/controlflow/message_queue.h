@@ -21,6 +21,7 @@ class OrtMessageQueue final {
 
   void Push(const OrtValue& ort_value) { ort_values.emplace(ort_value); }
   OrtValue Pop() {
+    ORT_ENFORCE(!ort_values.empty());
     OrtValue ort_value = ort_values.front();
     ort_values.pop();
     return ort_value;
