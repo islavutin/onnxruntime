@@ -581,6 +581,9 @@ namespace Microsoft.ML.OnnxRuntime
                                                                                                      int allow_unaligned_buffers,
                                                                                                      IntPtr /*(char char*)*/ settings);
 
+        [DllImport((nativeLib, CharSet = charSet)]
+        public static extern IntPtr /*(OrtStatus*)*/ OrtSessionOptionsAppendExecutionProvider_Stvm(IntPtr /*(OrtSessionOptions*) */ options, string /*(const char*)*/ backend_type);
+
         //[DllImport(nativeLib, CharSet = charSet)]
         //public static extern void OrtAddCustomOp(IntPtr /*(OrtSessionOptions*)*/ options, string custom_op_path);
 

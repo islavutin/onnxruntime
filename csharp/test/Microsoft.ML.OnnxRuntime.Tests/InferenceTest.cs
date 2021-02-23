@@ -121,6 +121,9 @@ namespace Microsoft.ML.OnnxRuntime.Tests
 #if USE_NNAPI
                 opt.AppendExecutionProvider_Nnapi(0);
 #endif
+if USE_STVM
+                opt.AppendExecutionProvider_Stvm("Vulkan -device=amd_apu");
+#endif                
 
 
             }
@@ -2308,6 +2311,9 @@ namespace Microsoft.ML.OnnxRuntime.Tests
 #endif
 #if USE_NNAPI
             ,"OrtSessionOptionsAppendExecutionProvider_Nnapi"
+#endif
+#if USE_STVM
+            ,"OrtSessionOptionsAppendExecutionProvider_Stvm"
 #endif
     };
             IntPtr libraryHandle = IntPtr.Zero;

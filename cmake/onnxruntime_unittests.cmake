@@ -424,6 +424,12 @@ file(GLOB_RECURSE onnxruntime_test_tvm_src CONFIGURE_DEPENDS
   "${ONNXRUNTIME_ROOT}/test/tvm/*.cc"
   )
 
+file (GLOB_RECURSE onnxruntime_test_stvm_src CONFIGURE_DEPENDS
+  "${ONNXRUNTIME_ROOT}/test/stvm/*.h"
+  "${ONNXRUNTIME_ROOT}/test/stvm/*.cc"
+  )
+
+
 if(onnxruntime_USE_NUPHAR)
   list(APPEND onnxruntime_test_framework_src_patterns  ${TEST_SRC_DIR}/framework/nuphar/*)
   list(APPEND onnxruntime_test_framework_libs onnxruntime_providers_nuphar)
@@ -438,6 +444,11 @@ endif()
 if(onnxruntime_USE_ARMNN)
   list(APPEND onnxruntime_test_providers_dependencies onnxruntime_providers_armnn)
 endif()
+
+
+if (onnxruntime_USE_STVM)
+  list(APPEND onnxruntime_test_providers_dependencies onnxruntime_providers_stvm)
+endif()  
 
 if (onnxruntime_ENABLE_LANGUAGE_INTEROP_OPS)
   set(ONNXRUNTIME_INTEROP_TEST_LIBS PRIVATE onnxruntime_language_interop onnxruntime_pyop)
@@ -457,6 +468,7 @@ set(ONNXRUNTIME_TEST_LIBS
     ${PROVIDERS_ACL}
     ${PROVIDERS_ARMNN}
     ${PROVIDERS_ROCM}
+    ${PROVIDERS_STVM}
     ${PROVIDERS_COREML}
     onnxruntime_optimizer
     onnxruntime_providers
@@ -587,6 +599,9 @@ if (onnxruntime_ENABLE_TRAINING)
 endif()
 
 if (onnxruntime_USE_TVM)
+    list(APPEND all_tests ${onnxruntime_test_tvm_src})
+  endif()
+  if (onnxruntime_USE_STVM)
   list(APPEND all_tests ${onnxruntime_test_tvm_src})
 endif()
 if (onnxruntime_USE_OPENVINO)
@@ -625,8 +640,61 @@ endif()
 if (onnxruntime_USE_FEATURIZERS)
   target_include_directories(onnxruntime_test_all PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/FeaturizersLibrary/src)
 endif()
+  if (onnxruntime_USE_TVM)
+    list(APPEND all_tests ${onnxruntime_test_tvm_src})
+  endif()
+  if (onnxruntime_USE_STVM)
+    list(APPEND all_tests ${onnxruntime_test_stvm_src})
+  endif()
+  if (onnxruntime_USE_OPENVINO)
+    list(APPEND all_tests ${onnxruntime_test_openvino_src})
+  endif()
+  # we can only have one 'main', so remove them all and add back the providers test_main as it sets
+  # up everything we need for all tests
+  file(GLOB_RECURSE test_mains CONFIGURE_DEPENDS
+    "${TEST_SRC_DIR}/*/test_main.cc"
+    )
+  list(REMOVE_ITEM all_tests ${test_mains})
+  list(APPEND all_tests "${TEST_SRC_DIR}/providers/test_main.cc")
+
+  # this is only added to onnxruntime_test_framework_libs above, but we use onnxruntime_test_providers_libs for the onnxruntime_test_all target.
+  # for now, add it here. better is probably to have onnxruntime_test_providers_libs use the full onnxruntime_test_framework_libs
+  # list given it's built on top of that library and needs all the same dependencies.
+  if(WIN32)
+    list(APPEND onnxruntime_test_providers_libs Advapi32)
+  endif()
+
+  AddTest(
+    TARGET onnxruntime_test_all
+    SOURCES ${all_tests}
+    LIBS onnx_test_runner_common ${onnxruntime_test_providers_libs}  ${onnxruntime_test_common_libs}  re2::re2 onnx_test_data_proto
+    DEPENDS ${all_dependencies}
+  )
+
+  # the default logger tests conflict with the need to have an overall default logger
+  # so skip in this type of
+  target_compile_definitions(onnxruntime_test_all PUBLIC -DSKIP_DEFAULT_LOGGER_TESTS)
+  if(onnxruntime_RUN_MODELTEST_IN_DEBUG_MODE)
+    target_compile_definitions(onnxruntime_test_all PUBLIC -DRUN_MODELTEST_IN_DEBUG_MODE)
+  endif()
+  if (onnxruntime_USE_FEATURIZERS)
+    target_include_directories(onnxruntime_test_all PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/FeaturizersLibrary/src)
+  endif()
+  if (onnxruntime_ENABLE_LANGUAGE_INTEROP_OPS)
+    target_link_libraries(onnxruntime_test_all PRIVATE onnxruntime_language_interop onnxruntime_pyop)
+  endif()
+  if (onnxruntime_USE_STVM)
+    # find_library(STVM_LIBS NAMES libtvm.so PATHS ${onnxruntime_STVM_HOME}/lib)
+    # link_directories(onnxruntime_test_all ${STVM_LIBS})
+    find_library(PYTHON_LIBS NAMES libpython3.6m.so PATHS /usr/local/lib)
+    #target_link_libraries(onnxruntime_test_all PRIVATE ${PYTHON_LIBRARIES} -lutil)
+    target_link_libraries(onnxruntime_test_all PRIVATE -lpython3.6m -lutil)
+    # set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-rpath,${STVM_LIBS}")
+  endif()
+
 if (onnxruntime_ENABLE_LANGUAGE_INTEROP_OPS)
   target_link_libraries(onnxruntime_test_all PRIVATE onnxruntime_language_interop onnxruntime_pyop)
+    # set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-rpath,${STVM_LIBS}")
 endif()
 
 if (onnxruntime_USE_ROCM)

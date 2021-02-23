@@ -94,6 +94,15 @@ namespace Microsoft.ML.OnnxRuntime
             return options;
         }
 
+        /// <summary>
+        /// Use only if you have the onnxruntime package specific to this Execution Provider.
+        /// </summary>
+        public void AppendExecutionProvider_Stvm(string backendType)
+        {
+            NativeApiStatus.VerifySuccess(NativeMethods.OrtSessionOptionsAppendExecutionProvider_Stvm(_nativePtr, backendType));
+        }
+        
+
         #endregion
 
         #region ExecutionProviderAppends

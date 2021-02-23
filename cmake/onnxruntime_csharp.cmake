@@ -34,6 +34,10 @@ if (onnxruntime_USE_NUPHAR)
   STRING(APPEND CSHARP_PREPROCESSOR_DEFINES "USE_NUPHAR,")
 endif()
 
+if (onnxruntime_USE_STVM)
+  STRING(APPEND CSHARP_PREPROCESSOR_DEFINES "USE_STVM,")
+endif()
+
 include(CSharpUtilities)
 
 include_external_msproject(Microsoft.ML.OnnxRuntime

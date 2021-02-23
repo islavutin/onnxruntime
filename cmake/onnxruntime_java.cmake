@@ -85,6 +85,9 @@ endif()
 if (onnxruntime_USE_DML)
   target_compile_definitions(onnxruntime4j_jni PRIVATE USE_DIRECTML=1)
 endif()
+if (onnxruntime_USE_STVM)
+  target_compile_definitions(onnxruntime4j_jni PRIVATE USE_STVM=1)
+endif()
 
 # depend on java sources. if they change, the JNI should recompile
 add_dependencies(onnxruntime4j_jni onnxruntime4j)

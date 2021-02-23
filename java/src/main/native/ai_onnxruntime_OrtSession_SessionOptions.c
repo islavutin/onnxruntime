@@ -23,6 +23,7 @@
 #include "onnxruntime/core/providers/tensorrt/tensorrt_provider_factory.h"
 #include "onnxruntime/core/providers/migraphx/migraphx_provider_factory.h"
 #include "onnxruntime/core/providers/acl/acl_provider_factory.h"
+#include "onnxruntime/core/providers/stvm/stvm_provider_factory.h"
 #ifdef USE_DIRECTML
 #include "onnxruntime/core/providers/dml/dml_provider_factory.h"
 #endif
@@ -500,5 +501,23 @@ JNIEXPORT void JNICALL Java_ai_onnxruntime_OrtSession_00024SessionOptions_addACL
   #else
     (void)apiHandle;(void)handle;(void)useArena; // Parameters used when ACL is defined.
     throwOrtException(jniEnv,convertErrorCode(ORT_INVALID_ARGUMENT),"This binary was not compiled with ACL support.");
+  #endif
+}
+
+/*
+ * Class::    ai_onnxruntime_OrtSession_SessionOptions
+ * Method:    addStvm
+ * Signature: (JJI)V
+ */
+JNIEXPORT void JNICALL Java_ai_onnxruntime_OrtSession_00024SessionOptions_addStvm
+  (JNIEnv * jniEnv, jobject jobj, jlong apiHandle, jlong handle, jstring backendString) {
+    (void)jobj;
+  #ifdef USE_STVM
+    const char* backendType = (*jniEnv)->GetStringUTFChars(jniEnv, backendString, NULL);
+    checkOrtStatus(jniEnv,(const OrtApi*)apiHandle,OrtSessionOptionsAppendExecutionProvider_Stvm((OrtSessionOptions*) handle, backendType));
+    (*jniEnv)->ReleaseStringUTFChars(jniEnv,backendString,backendType);
+  #else
+    (void)apiHandle;(void)handle;(void)backendString; // Parameters used when Stvm is defined.
+    throwOrtException(jniEnv,convertErrorCode(ORT_INVALID_ARGUMENT),"This binary was not compiled with Stvm support.");
   #endif
 }

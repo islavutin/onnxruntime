@@ -62,6 +62,10 @@ endif()
 if (onnxruntime_USE_DNNL)
   target_compile_definitions(onnxruntime_pybind11_state PRIVATE USE_DNNL=1)
 endif()
+if (onnxruntime_USE_STVM)
+  target_compile_definitions(onnxruntime_pybind11_state PRIVATE USE_STVM=1)
+  include_directories(${PYTHON_INCLUDE_DIRS})
+endif()  
 if (MSVC AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     #TODO: fix the warnings
     target_compile_options(onnxruntime_pybind11_state PRIVATE "/wd4244")
@@ -95,6 +99,7 @@ set(onnxruntime_pybind11_state_libs
     ${PROVIDERS_ACL}
     ${PROVIDERS_ARMNN}
     ${PROVIDERS_ROCM}
+    ${PROVIDERS_STVM}
     onnxruntime_optimizer
     onnxruntime_providers
     onnxruntime_util
@@ -434,9 +439,18 @@ if (onnxruntime_USE_NNAPI_BUILTIN)
     COMMAND ${CMAKE_COMMAND} -E copy
         $<TARGET_FILE:onnxruntime_providers_nnapi>
         $<TARGET_FILE_DIR:${test_data_target}>/onnxruntime/capi/
-  )
-endif()
+    )
+endif()  
 
 if (onnxruntime_ENABLE_LANGUAGE_INTEROP_OPS)
   include(onnxruntime_language_interop_ops.cmake)
 endif()
+
+if (onnxruntime_USE_STVM)
+  add_custom_command(
+    TARGET onnxruntime_pybind11_state POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${DNNL_DLL_PATH} $<TARGET_FILE:onnxruntime_providers_stvm>
+        $<TARGET_FILE_DIR:${test_data_target}>/onnxruntime/capi/
+    )
+endif()  

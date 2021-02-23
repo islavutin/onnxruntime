@@ -800,6 +800,7 @@ void OpTester::Run(
         kNnapiExecutionProvider,
         kRocmExecutionProvider,
         kCoreMLExecutionProvider,
+        kStvmExecutionProvider
     };
 
     bool has_run = false;

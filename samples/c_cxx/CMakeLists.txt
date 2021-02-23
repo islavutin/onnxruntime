@@ -19,6 +19,7 @@ option(onnxruntime_USE_NNAPI_BUILTIN "Build with builtin NNAPI lib for Android N
 option(onnxruntime_USE_DNNL "Build with DNNL support" OFF)
 option(onnxruntime_USE_NUPHAR "Build with Nuphar" OFF)
 option(onnxruntime_USE_TENSORRT "Build with TensorRT support" OFF)
+option(onnxruntime_USE_STVM "Build with Standalone tvm support" OFF)
 option(LIBPNG_ROOTDIR "libpng root dir")
 option(ONNXRUNTIME_ROOTDIR "onnxruntime root dir")
 
@@ -70,6 +71,9 @@ if(onnxruntime_USE_DML)
   message("Enabling DML")
   add_definitions(-DUSE_DML)
 endif()
+if(onnxruntime_USE_STVM)
+  add_definitions(-DUSE_STVM)
++endif()  
 
 # some examples require a Windows build environment
 if(WIN32)
