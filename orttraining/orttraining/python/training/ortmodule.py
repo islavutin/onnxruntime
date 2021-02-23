@@ -414,14 +414,15 @@ class ORTModule(torch.nn.Module):
                 return user_outputs[0] if len(user_outputs) == 1 else user_outputs
 
             @staticmethod
-            def backward(ctx, *grad_output):
+            def backward(ctx, *grad_outputs):
                 '''Performs backward pass based on grad wrt module output
                 '''
 
                 # Use IO binding
                 # Push user output grads to ONNX backend.
                 backward_grad_output_ortvalue = []
-                for grad_output in grad_output[:len(self._onnx_graphs_info.backward_output_grad_names)]:
+                for _, i in self._onnx_graphs_info.backward_output_grad_names_map.items():
+                    grad_output = grad_outputs[i]
                     backward_grad_output_ortvalue.append(onnxruntime.OrtValue.ortvalue_from_data_ptr(list(grad_output.size()), _utils.dtype_torch_to_numpy(
                         grad_output.dtype), grad_output.device.type, _utils.get_device_index(grad_output.device), grad_output.data_ptr()))
 
