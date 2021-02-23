@@ -987,6 +987,7 @@ void OpTester::Run(
         kNnapiExecutionProvider,
         kRocmExecutionProvider,
         kCoreMLExecutionProvider,
+//        kStvmExecutionProvider  //TODO(vvchernov): update test build and tests
     };
 
     bool has_run = false;
