@@ -1,4 +1,5 @@
 import copy
+import functools
 import io
 import logging
 import onnx
@@ -196,6 +197,110 @@ class ORTModule(torch.nn.Module):
 
     def __init__(self, module):
         assert isinstance(module, torch.nn.Module), "'module' must be a torch.nn.Module"
+
+        # Create forward dynamically, so each ORTModule instance will have its own copy.
+        # This is needed to be able to copy the forward signatures from the original PyTorch models
+        # and possibly have different signatures for different instances.
+        def forward(self, *inputs, **kwargs):
+            '''Forward pass starts here and continues at `_ORTModuleFunction.forward`
+
+            ONNX model is exported the first time this method is executed.
+            Next, we build a full training graph with module_gradient_graph_builder.
+            Finally, we instantiate the ONNX Runtime InferenceSession.
+            '''
+            # TODO: using pytorch for evaluation for now. We will use ORT for evaluation latter.
+            if not self._is_training:
+                return self._original_module(*inputs, **kwargs)
+
+            # Exporting module to ONNX for the first time
+            if not self._onnx_training:
+                if not self._device:
+                    self._device = _utils.get_device_from_input_args_kwargs(self._original_module, *inputs, **kwargs)
+                    if not self._device:
+                        raise RuntimeError('A device must be specified in the model or data!')
+                self._get_inference_graph_and_init_gradient_graph_builder(*inputs, **kwargs)
+
+            _, _, input_names_require_grad, new_input_shape = _parse_inputs_for_onnx_export(self._original_module_input_names, self._onnx_inference, *inputs, **kwargs)
+            # If inputs requiring gradient change from one call to forward to the next, the module_gradient_graph_builder
+            # needs to be reinitialized so it can compute the backward output for the new inputs that require_grad
+            if input_names_require_grad != self._input_names_require_grad:
+                self._input_names_require_grad = input_names_require_grad
+                self._initialize_module_gradient_graph_builder()
+
+            if self._current_input_shape is None or self._current_input_shape != new_input_shape:
+                self._current_input_shape = new_input_shape
+                self._build_training_graph()
+                self._create_training_session()
+            # TODO: disabled for now, since it caused a bug in NVBert fp32 run
+            # When creating a new InferenceSession, there is a bug for destructing the original InferenceSession 
+            # elif self._device_changed:
+            #     self._create_training_session()
+            #     self._device_changed = False
+
+            # Use a custom torch.autograd.Function to associate self.backward_graph as the
+            # gradient implementation for self.forward_graph.
+            class _ORTModuleFunction(torch.autograd.Function):
+                @staticmethod
+                def forward(ctx, *inputs, **kwargs):
+                    '''Performs forward pass based on user input and PyTorch initializer
+
+                    Autograd Function's apply() doesn't support keyword arguments,
+                    so `*inputs` has all the arguments - keyword arguments converted
+                    to positional by the caller.
+
+                    Module outputs are returned to the user
+                    '''
+
+                    # Use IO binding
+                    _create_iobinding(self._training_io_binding, inputs, self._onnx_training, self._device)
+
+                    # Run and return module outputs.
+                    user_outputs = tuple(_ort_output_to_torch_tensor(forward_output) \
+                        for forward_output in self._training_session.run_forward(self._training_io_binding, self._run_options))
+                    return user_outputs[0] if len(user_outputs) == 1 else user_outputs
+
+                @staticmethod
+                def backward(ctx, *grad_output):
+                    '''Performs backward pass based on grad wrt module output
+                    '''
+
+                    # Use IO binding
+                    # Push user output grads to ONNX backend.
+                    backward_grad_output_ortvalue = []
+                    for grad_output in grad_output[:len(self._onnx_graphs_info.backward_output_grad_names)]:
+                        backward_grad_output_ortvalue.append(onnxruntime.OrtValue.ortvalue_from_data_ptr(list(grad_output.size()), _utils.dtype_torch_to_numpy(
+                            grad_output.dtype), grad_output.device.type, _utils.get_device_index(grad_output.device), grad_output.data_ptr()))
+
+                    # Run and get results
+                    self._training_session.run_backward(backward_grad_output_ortvalue)
+                    backward_outputs = self._training_io_binding.get_outputs()
+
+                    # Return input and initializer gradients
+                    num_user_input_grads = len(self._input_names_require_grad)
+
+                    results = []
+                    for input_name in self._onnx_graphs_info.user_input_names:
+                        try:
+                            # Append to the results the backward output for each input that required grad
+                            results.append(_ort_output_to_torch_tensor(
+                                backward_outputs[self._input_names_require_grad.index(input_name)]))
+                        except ValueError:
+                            # input_name is not found in the self._input_names_require_grad list
+                            # Append None to results for each input that did not require grad
+                            results.append(None)
+                    # Append gradients of initializer to results
+                    results += [_ort_output_to_torch_tensor(backward_output)
+                                for backward_output in backward_outputs[num_user_input_grads:]]
+                    return tuple(results)
+
+            return _populate_user_output(self._original_module_output_type, self._onnx_graphs_info.user_output_names,
+                _ORTModuleFunction.apply(*self._convert_training_graph_input_to_list(*inputs, **kwargs)))
+
+        # Bind the forward method.
+        self.forward = forward.__get__(self)
+        # Copy the forward signature from the PyTorch module.
+        functools.update_wrapper(self.forward.__func__, module.forward.__func__)
+
         super(ORTModule, self).__init__()
 
         # Support contrib OPs
@@ -354,101 +459,6 @@ class ORTModule(torch.nn.Module):
     def train(self: T, mode: bool = True) -> T:
         self._is_training = mode
         self._original_module.train(mode)
-
-    def forward(self, *inputs, **kwargs):
-        '''Forward pass starts here and continues at `_ORTModuleFunction.forward`
-
-        ONNX model is exported the first time this method is executed.
-        Next, we build a full training graph with module_gradient_graph_builder. 
-        Finally, we instantiate the ONNX Runtime InferenceSession.
-        '''
-        # TODO: using pytorch for evaluation for now. We will use ORT for evaluation latter. 
-        if not self._is_training:
-            return self._original_module(*inputs, **kwargs)
-
-        # Exporting module to ONNX for the first time
-        if not self._onnx_training:
-            if not self._device:
-                self._device = _utils.get_device_from_input_args_kwargs(self._original_module, *inputs, **kwargs)
-                if not self._device:
-                    raise RuntimeError('A device must be specified in the model or data!')
-            self._get_inference_graph_and_init_gradient_graph_builder(*inputs, **kwargs)
-
-        _, _, input_names_require_grad, new_input_shape = _parse_inputs_for_onnx_export(self._original_module_input_names, self._onnx_inference, *inputs, **kwargs)
-        # If inputs requiring gradient change from one call to forward to the next, the module_gradient_graph_builder
-        # needs to be reinitialized so it can compute the backward output for the new inputs that require_grad
-        if input_names_require_grad != self._input_names_require_grad:
-            self._input_names_require_grad = input_names_require_grad
-            self._initialize_module_gradient_graph_builder()
-
-        if self._current_input_shape is None or self._current_input_shape != new_input_shape:
-            self._current_input_shape = new_input_shape
-            self._build_training_graph()
-            self._create_training_session()
-        # TODO: disabled for now, since it caused a bug in NVBert fp32 run
-        # When creating a new InferenceSession, there is a bug for destructing the original InferenceSession 
-        # elif self._device_changed:
-        #     self._create_training_session()
-        #     self._device_changed = False
-
-        # Use a custom torch.autograd.Function to associate self.backward_graph as the
-        # gradient implementation for self.forward_graph.
-        class _ORTModuleFunction(torch.autograd.Function):
-            @staticmethod
-            def forward(ctx, *inputs, **kwargs):
-                '''Performs forward pass based on user input and PyTorch initializer
-
-                Autograd Function's apply() doesn't support keyword arguments,
-                so `*inputs` has all the arguments - keyword arguments converted
-                to positional by the caller.
-
-                Module outputs are returned to the user
-                '''
-
-                # Use IO binding
-                _create_iobinding(self._training_io_binding, inputs, self._onnx_training, self._device)
-
-                # Run and return module outputs.
-                user_outputs = tuple(_ort_output_to_torch_tensor(forward_output) \
-                    for forward_output in self._training_session.run_forward(self._training_io_binding, self._run_options))
-                return user_outputs[0] if len(user_outputs) == 1 else user_outputs
-
-            @staticmethod
-            def backward(ctx, *grad_output):
-                '''Performs backward pass based on grad wrt module output
-                '''
-
-                # Use IO binding
-                # Push user output grads to ONNX backend.
-                backward_grad_output_ortvalue = []
-                for grad_output in grad_output[:len(self._onnx_graphs_info.backward_output_grad_names)]:
-                    backward_grad_output_ortvalue.append(onnxruntime.OrtValue.ortvalue_from_data_ptr(list(grad_output.size()), _utils.dtype_torch_to_numpy(
-                        grad_output.dtype), grad_output.device.type, _utils.get_device_index(grad_output.device), grad_output.data_ptr()))
-
-                # Run and get results
-                self._training_session.run_backward(backward_grad_output_ortvalue)
-                backward_outputs = self._training_io_binding.get_outputs()
-
-                # Return input and initializer gradients
-                num_user_input_grads = len(self._input_names_require_grad)
-
-                results = []
-                for input_name in self._onnx_graphs_info.user_input_names:
-                    try:
-                        # Append to the results the backward output for each input that required grad
-                        results.append(_ort_output_to_torch_tensor(
-                            backward_outputs[self._input_names_require_grad.index(input_name)]))
-                    except ValueError:
-                        # input_name is not found in the self._input_names_require_grad list
-                        # Append None to results for each input that did not require grad
-                        results.append(None)
-                # Append gradients of initializer to results
-                results += [_ort_output_to_torch_tensor(backward_output) 
-                            for backward_output in backward_outputs[num_user_input_grads:]]
-                return tuple(results)
-
-        return _populate_user_output(self._original_module_output_type, self._onnx_graphs_info.user_output_names,
-            _ORTModuleFunction.apply(*self._convert_training_graph_input_to_list(*inputs, **kwargs)))
 
     @_utils.timeit(enabled=__TEMP_ENABLE_METHOD_TIMING__)
     def _convert_training_graph_input_to_list(self, *inputs, **kwargs):
