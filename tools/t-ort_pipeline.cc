@@ -59,7 +59,7 @@ static std::vector<int64_t> GetShape(const Ort::Session& sess,
   return retval;
 }
 
-struct Ensemble {
+struct EnsembleConfig {
   struct ModelConfig {
     std::string model_name;
     std::string model_file_path;
@@ -291,7 +291,7 @@ struct PipelineSession {
     return nullptr;
   }
 
-  void ParseEnsembleJsonFile(const std::string& ensemble_json_file, Ensemble& ens) {
+  void ParseEnsembleJsonFile(const std::string& ensemble_json_file, EnsembleConfig& ens) {
     std::ifstream ifs(ensemble_json_file);
     if (!ifs.good()) {
       throw std::runtime_error("File error");
@@ -301,7 +301,7 @@ struct PipelineSession {
     ens.max_seq_len = j["max_seq_len"];
     int idx = 0;
     for (const auto& m : j["ensemble"]) {
-      Ensemble::ModelConfig cfg;
+      EnsembleConfig::ModelConfig cfg;
       std::string model_name = m["model_name"];
       cfg.model_name = model_name;
       cfg.model_file_path = m["model_file_path"];
@@ -340,16 +340,16 @@ struct PipelineSession {
   }
 
   PipelineSession(const std::string& ensemble_json_file, Ort::Env& env) {
-    Ensemble ens;
+    EnsembleConfig ens;
     ParseEnsembleJsonFile(ensemble_json_file, ens);
     Init(ens, env);
   }
 
-  PipelineSession(const Ensemble& ens, Ort::Env& env) {
+  PipelineSession(const EnsembleConfig& ens, Ort::Env& env) {
     Init(ens, env);
   }
 
-  void Init(const Ensemble& ens0, Ort::Env& env) {
+  void Init(const EnsembleConfig& ens0, Ort::Env& env) {
     ens = ens0;  // TODO can avoid copy of ensemble config
 
     Ort::AllocatorWithDefaultOptions ort_allocator;
@@ -437,16 +437,16 @@ struct PipelineSession {
   };
 
   std::vector<SessionState> model_session_state_vec;
-  Ensemble ens;
+  EnsembleConfig ens;
 };
 
-// void SetupEnsemble(Ensemble& ens) {
+// void SetupEnsemble(EnsembleConfig& ens) {
 //   std::string model_name1 = "mul_1";
 //   std::string model_name2 = "mul_2";
 //   std::string input_name = "X";
 //   std::string output_name = "Y";
 //   std::string model_path = "/bert_ort/pranav/onnxruntime/onnxruntime/test/testdata/mul_1.onnx";
-//   Ensemble::ModelConfig m1{model_name1,
+//   EnsembleConfig::ModelConfig m1{model_name1,
 //                            model_path,
 //                            {},
 //                            {},
@@ -455,7 +455,7 @@ struct PipelineSession {
 //                            {},
 //                            2};
 
-//   Ensemble::ModelConfig m2{model_name2,
+//   EnsembleConfig::ModelConfig m2{model_name2,
 //                            model_path,
 //                            {},
 //                            {},
@@ -536,7 +536,7 @@ int main(int argc, char* argv[]) {
 
   // setup the pipeline session
   PipelineSession pipeline_session(ensemble_file_name, env);
-  // Ensemble ens;
+  // EnsembleConfig ens;
   // SetupEnsemble(ens);
   // PipelineSession pipeline_session(ens, env);
 

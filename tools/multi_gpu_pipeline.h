@@ -12,7 +12,7 @@
 
 using ReqId = int64_t;
 
-struct Ensemble {
+struct EnsembleConfig {
   struct ModelConfig {
     std::string model_name;
     std::string model_file_path;
@@ -64,12 +64,12 @@ struct RequestExecutionFrame {
 struct OrtReq {
   std::vector<std::string> input_names;
   std::vector<Ort::Value> input_values;
-  int batch_size;  // TODO can be derived from input_values
 };
 
 struct OrtResp {
   std::vector<std::string> output_names;
   std::vector<Ort::Value> output_values;
+  std::vector<Ort::MemoryInfo> output_meminfo;  // specify location of outputs or null for preallocated
 };
 
 struct Token {
@@ -86,10 +86,10 @@ struct PipelineSession {
   // TODO - adjust output shape for states
   // TODO - change position_ids for step > 0
   OrtStatus* Run(std::vector<OrtReq>& req_vec, std::vector<OrtResp>& resp_vec, int max_steps);
-  void ParseEnsembleJsonFile(const std::string& ensemble_json_file, Ensemble& ens);
+  void ParseEnsembleJsonFile(const std::string& ensemble_json_file, EnsembleConfig& ens);
   PipelineSession(const std::string& ensemble_json_file, Ort::Env& env);
-  PipelineSession(const Ensemble& ens, Ort::Env& env);
-  void Init(Ensemble& ens0, Ort::Env& env);
+  PipelineSession(const EnsembleConfig& ens, Ort::Env& env);
+  void Init(EnsembleConfig& ens0, Ort::Env& env);
 
   struct SessionState {
     Ort::Session session;
@@ -102,6 +102,6 @@ struct PipelineSession {
   // TODO later we might store this keyed by device id if we allow the same model to have sessions on multiple GPUs for
   // better load balancing
   std::vector<SessionState> model_session_state_vec;
-  Ensemble ens;
+  EnsembleConfig ens;
   TaskThreadPool tp;
 };

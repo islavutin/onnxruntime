@@ -138,7 +138,7 @@ struct RequestProcessor {
 
     RequestExecutionFrame::RunState& run_state = exec_frame.model_run_state_vec[model_idx];
 
-    // CheckStatus(g_ort->SetCurrentGpuDeviceId(model_config.device_id));
+    CheckStatus(g_ort->SetCurrentGpuDeviceId(model_config.device_id));
 
     std::vector<const char*> model_output_names;
     for (const auto& elem : model_config.output_names) {
@@ -262,8 +262,8 @@ struct RequestProcessor {
       // only pass those outputs to the next layer for which there is a config in the ensemble
       // other outputs are states to be used in the next run
       if (model_config.output_input_map.count(oname)) {
-        // std::cout << stage_id << "/" << token.step_id << " mapping output " << oname << " to input of next stage "
-        //           << model_config.output_input_map[oname] << std::endl;
+        std::cout << "Copying output req_id(" << token.req_id << ")/step(" << token.step_id << ")/stage(" << exec_frame.stage_id << ") "
+                  << model_config.output_input_map.at(oname) << std::endl;
         token_ptr->ort_value_names.push_back(model_config.output_input_map.at(oname));  // input_hidden_states
         token_ptr->ort_values.push_back(std::move(vec_out_vals[i]));
       }
@@ -274,12 +274,11 @@ struct RequestProcessor {
 };
 
 // TODO proper error handling
-// TODO - change position_ids for step > 0
 // TODO - token memory can be optimized
-OrtStatus* PipelineSession::Run(/*const*/ std::vector<OrtReq>& req_list, std::vector<OrtResp>& resp_list, int max_steps) {
+OrtStatus* PipelineSession::Run(/*const*/ std::vector<OrtReq>& req_list, std::vector<OrtResp>& resp_list, int num_steps) {
   ResponseQueue<std::shared_ptr<Token>> rq;
   std::unordered_map<ReqId, RequestExecutionFrame> req_frame_map;
-  std::unordered_map<ReqId, std::future<void>> req_future_map;
+  // std::unordered_map<ReqId, std::future<void>> req_future_map;
 
   int nreqs = req_list.size();
 
@@ -293,6 +292,18 @@ OrtStatus* PipelineSession::Run(/*const*/ std::vector<OrtReq>& req_list, std::ve
     auto& one_req = req_list[req_idx];
     int stage_id = 0;
 
+    // resize the output vector if not already of appropriate size
+    auto& ovalues = resp_list[req_idx].output_values;
+    const auto& onames = resp_list[req_idx].output_names;
+    if (!ovalues.empty()) {
+      assert(onames.size() == ovalues.size());
+    } else {
+      ovalues.reserve(onames.size());
+      for (const auto& oname : onames) {
+        ovalues.push_back(Ort::Value{nullptr});
+      }
+    }
+
     // store batch size and input seq len to change position_ids for step > 0
     auto rc = Exists(one_req.input_names, ens.model_config_vec[0].input_to_use_for_seq_len);
     assert(rc.first);
@@ -300,32 +311,40 @@ OrtStatus* PipelineSession::Run(/*const*/ std::vector<OrtReq>& req_list, std::ve
                             .GetTensorTypeAndShapeInfo()
                             .GetShape();
     int orig_seq_len = shape[ens.model_config_vec[0].seq_len_dim_index_in_input];
+    int batch_size = shape[ens.model_config_vec[0].batch_dim_index_in_input];
 
     RequestExecutionFrame ref(*this,
                               req_idx,
                               req_id,
-                              one_req.batch_size,
+                              batch_size,
                               orig_seq_len,
                               stage_id);
     req_frame_map.emplace(req_id, std::move(ref));
 
     int step_id = 0;
     // TODO this moves the input names and values
-    auto in_token_ptr = std::shared_ptr<Token>(new Token{req_id, step_id, std::move(one_req.input_names),
+    auto in_token_ptr = std::shared_ptr<Token>(new Token{req_id, step_id, one_req.input_names,
                                                          std::move(one_req.input_values)});
-    auto lambda = [this, &rq, &rp, &in_token_ptr, &req_frame_map, req_id]() {
-      auto out_token_ptr = rp.ProcessRequest(*in_token_ptr, *this, req_frame_map.at(req_id));
+    auto lambda = [this, &rq, &rp, in_token_ptr, &req_frame_map, req_id]() {
+      std::shared_ptr<Token> out_token_ptr;
+      try {
+        out_token_ptr = rp.ProcessRequest(*in_token_ptr, *this, req_frame_map.at(req_id));
+      } catch (const std::exception& e) {
+        std::ostringstream error;
+        error << "Error in processing request id: " << in_token_ptr->req_id << " with exception: " << e.what();
+        out_token_ptr->req_id = in_token_ptr->req_id;
+        out_token_ptr->error_msg = error.str();
+      } catch (...) {
+        std::ostringstream error;
+        error << "Error in processing request id: " << in_token_ptr->req_id << " with unknown exception";
+        out_token_ptr->req_id = in_token_ptr->req_id;
+        out_token_ptr->error_msg = error.str();
+      }
       rq.Put(out_token_ptr);
     };
-    std::packaged_task<void()> task(lambda);
-    req_future_map[req_id] = std::move(task.get_future());
+    std::function<void()> task(lambda);
+    // req_future_map[req_id] = std::move(task.get_future());
     tp.RunTask(std::move(task));
-    // task();
-    try {
-      req_future_map.at(req_id).get();
-    } catch (const std::exception& e) {
-      throw;
-    }
   }
 
   // now read the response queue and enqueue further steps/stages for processing
@@ -333,26 +352,32 @@ OrtStatus* PipelineSession::Run(/*const*/ std::vector<OrtReq>& req_list, std::ve
   int req_processed = 0;
   while (req_processed < nreqs) {
     auto token_ptr = rq.Get();
-    // TODO call get on the future to catch exceptions
     ReqId req_id = token_ptr->req_id;
     int step_id = token_ptr->step_id;
     auto& exec_frame = req_frame_map.at(req_id);
-    exec_frame.stage_id = (exec_frame.stage_id + 1) % ens.num_stages;
 
+    if (!token_ptr->error_msg.empty()) {
+      ++req_processed;
+      continue;
+    }
+
+    exec_frame.stage_id = (exec_frame.stage_id + 1) % ens.num_stages;
     if (exec_frame.stage_id == 0) {  // this means we've reached step > 0
       ++step_id;
-      if (step_id == max_steps) {
+      if (step_id == num_steps) {
         // look for the requested output_names in the token
         // fetch the corresponding Ort::Value and copy it to OrtResp
         int req_index = exec_frame.req_index;
+        int resp_index = 0;
         for (const auto& oname : resp_list[req_index].output_names) {
           auto ex = Exists(token_ptr->ort_value_names, oname);
           if (ex.first) {
-            resp_list[req_index].output_values.push_back(std::move(token_ptr->ort_values[ex.second]));
+            resp_list[req_index].output_values[resp_index] = std::move(token_ptr->ort_values[ex.second]);
           } else {
             // case when the user requested for an invalid output
-            resp_list[req_index].output_values.push_back(Ort::Value{nullptr});
+            resp_list[req_index].output_values[resp_index] = Ort::Value{nullptr};
           }
+          ++resp_index;
         }
         ++req_processed;
         continue;
@@ -387,25 +412,32 @@ OrtStatus* PipelineSession::Run(/*const*/ std::vector<OrtReq>& req_list, std::ve
       token_ptr->step_id = step_id;
     }
 
-    auto lambda = [this, &rq, &rp, &token_ptr, &req_frame_map, req_id]() {
-      auto out_token_ptr = rp.ProcessRequest(*token_ptr, *this, req_frame_map.at(req_id));
+    auto lambda = [this, &rq, &rp, token_ptr, &req_frame_map, req_id]() {
+      std::shared_ptr<Token> out_token_ptr;
+      try {
+        out_token_ptr = rp.ProcessRequest(*token_ptr, *this, req_frame_map.at(req_id));
+      } catch (const std::exception& e) {
+        std::ostringstream error;
+        error << "Error in processing request id: " << token_ptr->req_id << " with exception: " << e.what();
+        out_token_ptr->req_id = token_ptr->req_id;
+        out_token_ptr->error_msg = error.str();
+      } catch (...) {
+        std::ostringstream error;
+        error << "Error in processing request id: " << token_ptr->req_id << " with unknown exception";
+        out_token_ptr->req_id = token_ptr->req_id;
+        out_token_ptr->error_msg = error.str();
+      }
       rq.Put(out_token_ptr);
     };
-    std::packaged_task<void()> task(lambda);
-    req_future_map[req_id] = std::move(task.get_future());
+    std::function<void()> task(lambda);
+    // req_future_map[req_id] = std::move(task.get_future());
     tp.RunTask(std::move(task));
-    // task();
-    try {
-      req_future_map.at(req_id).get();
-    } catch (const std::exception& e) {
-      throw;
-    }
   }
 
   return nullptr;
 }
 
-void PipelineSession::ParseEnsembleJsonFile(const std::string& ensemble_json_file, Ensemble& ens) {
+void PipelineSession::ParseEnsembleJsonFile(const std::string& ensemble_json_file, EnsembleConfig& ens) {
   std::ifstream ifs(ensemble_json_file);
   if (!ifs.good()) {
     throw std::runtime_error("File error");
@@ -415,7 +447,7 @@ void PipelineSession::ParseEnsembleJsonFile(const std::string& ensemble_json_fil
   ens.max_seq_len = j["max_seq_len"];
   int idx = 0;
   for (const auto& m : j["ensemble"]) {
-    Ensemble::ModelConfig cfg;
+    EnsembleConfig::ModelConfig cfg;
     std::string model_name = m["model_name"];
     cfg.model_name = model_name;
     cfg.model_file_path = m["model_file_path"];
@@ -465,11 +497,11 @@ PipelineSession::PipelineSession(const std::string& ensemble_json_file, Ort::Env
   Init(ens, env);
 }
 
-PipelineSession::PipelineSession(const Ensemble& ens0, Ort::Env& env) : ens(ens0), tp(10) {
+PipelineSession::PipelineSession(const EnsembleConfig& ens0, Ort::Env& env) : ens(ens0), tp(10) {
   Init(ens, env);
 }
 
-void PipelineSession::Init(Ensemble& ens, Ort::Env& env) {
+void PipelineSession::Init(EnsembleConfig& ens, Ort::Env& env) {
   Ort::AllocatorWithDefaultOptions ort_allocator;
   for (auto& mcfg : ens.model_config_vec) {
     Ort::SessionOptions session_options;  // TODO should we accept session options from the config?
@@ -509,11 +541,11 @@ int main(int argc, char* argv[]) {
   }
   std::cout << "Using ensemble file: " << ensemble_file_name << "\n";
 
-  int max_steps = 1;
+  int num_steps = 1;
   if (argc > 2) {
-    max_steps = atoi(argv[2]);
+    num_steps = atoi(argv[2]);
   }
-  std::cout << "Using max_steps = " << max_steps << "\n";
+  std::cout << "Using num_steps = " << num_steps << "\n";
 
   int max_num_reqs = 1;
   if (argc > 3) {
@@ -550,7 +582,7 @@ int main(int argc, char* argv[]) {
                                                              input_node_dims.data(), input_node_dims.size());
     ort_inputs.push_back(std::move(input_ids_tensor));
     ort_inputs.push_back(std::move(posn_ids_tensor));
-    OrtReq one_req{input_node_names, std::move(ort_inputs), batch_size};
+    OrtReq one_req{input_node_names, std::move(ort_inputs)};
     req_list.push_back(std::move(one_req));
   }
 
@@ -562,8 +594,12 @@ int main(int argc, char* argv[]) {
   }
 
   // Run the pipeline
-  pipeline_session.Run(req_list, resp_list, max_steps);
-  // assert(output_values.size() == output_names.size());
+  pipeline_session.Run(req_list, resp_list, num_steps);
+  assert(resp_list[0].output_names[0] == "logits");
+  auto retval = std::move(resp_list[0].output_values[0]);
+  assert(retval.IsTensor());
+  assert(retval.GetTensorData<Ort::Float16_t>());
+  assert(resp_list[0].output_values.size() == resp_list[0].output_names.size());
 
   // print output
   // auto* data_ptr = output_values[0].GetTensorData<float>();

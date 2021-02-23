@@ -306,7 +306,7 @@ class SessionState {
   Status CreateKernels(const KernelRegistryManager& custom_registry_manager);
 
   // remove TensorProto versions of initializers from Graph instance
-  // (replaced byOrtValue instances in initialized_tensors_)
+  // (replaced byOrtValue instances in es)
   void CleanInitializedTensorsFromGraph();
 
   /**
