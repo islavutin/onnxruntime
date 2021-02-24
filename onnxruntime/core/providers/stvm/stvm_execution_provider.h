@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#pragma once
+
 #include "core/common/logging/logging.h"
 #include "core/framework/execution_provider.h"
 #include "core/platform/ort_mutex.h"
@@ -9,10 +11,10 @@
 namespace onnxruntime {
 
 namespace stvm_env_vars {
-static const std::string kDumpSubgraphs = "ORT_STVM_DUMP_SUBGRAPHS";
+   static const std::string kDumpSubgraphs = "ORT_STVM_DUMP_SUBGRAPHS";
 }  // namespace stvm_env_vars
 
-// Information needed to construct stvm execution providers.
+// Information needed to construct an TVM execution provider.
 struct StvmExecutionProviderInfo {
   const std::string backend_type;
 };
@@ -40,7 +42,7 @@ class StvmExecutionProvider : public IExecutionProvider {
                          std::vector<NodeComputeInfo>& node_compute_funcs) override;
   std::unique_ptr<onnxruntime::IDataTransfer> GetDataTransfer() const override;
   AllocatorPtr GetAllocator(int id, OrtMemType mem_type) const override;
- 
+
  private:
   bool dump_subgraphs_ = false;
   OrtMutex stvm_mu_;

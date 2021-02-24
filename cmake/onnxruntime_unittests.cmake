@@ -598,6 +598,11 @@ endif()
 if (onnxruntime_USE_TVM)
   list(APPEND all_tests ${onnxruntime_test_tvm_src})
 endif()
+
+if (onnxruntime_USE_STVM)
+    list(APPEND all_tests ${onnxruntime_test_stvm_src})
+endif()
+
 if (onnxruntime_USE_OPENVINO)
   list(APPEND all_tests ${onnxruntime_test_openvino_src})
 endif()

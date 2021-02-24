@@ -14,7 +14,8 @@ bool GPUDataTransfer::CanCopy(const OrtDevice& src_device, const OrtDevice& dst_
     return (src_device.Type() == OrtDevice::GPU || dst_device.Type() == OrtDevice::GPU);
 }
 
-common::Status GPUDataTransfer::CopyTensor(const Tensor& src, Tensor& dst, int exec_queue_id) const {
+common::Status GPUDataTransfer::CopyTensor(const Tensor& src, Tensor& dst, int _exec_queue_id) const {
+  _exec_queue_id = _exec_queue_id + 1;
   size_t bytes = src.SizeInBytes();
   const void* src_data = src.DataRaw();
   void* dst_data = dst.MutableDataRaw();
@@ -48,5 +49,5 @@ DLContext GPUDataTransfer::get_context(const OrtDevice& device) const
   }
   return context;
 }
-    
+
 }  // namespace onnxruntime

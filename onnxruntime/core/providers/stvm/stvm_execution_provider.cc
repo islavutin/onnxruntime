@@ -49,28 +49,30 @@ static DLContext GetDLContext(const OrtDevice& device) {
   }
   return context;
 }
-    
+
 struct STVMFuncState {
   AllocateFunc allocate_func = nullptr;
   DestroyFunc release_func = nullptr;
   AllocatorHandle allocator = nullptr;
   tvm::runtime::Module* module = nullptr;
   std::function<tvm::runtime::Module*(std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes)> compiler = nullptr;
-};    
+};
 
 StvmExecutionProvider::StvmExecutionProvider(const StvmExecutionProviderInfo& info)
     : IExecutionProvider{onnxruntime::kStvmExecutionProvider} {
     backend_type_ = info.backend_type;
     if (backend_type_.find("vulkan") != std::string::npos) {
-        DeviceAllocatorRegistrationInfo default_memory_info(
-        {OrtMemTypeDefault, [](int id) { return onnxruntime::make_unique<STVMGPUAllocator>(VULKAN, "STVM"); }, std::numeric_limits<size_t>::max()});
-        allocator_ = CreateAllocator(default_memory_info, VULKAN, false);
+        AllocatorCreationInfo default_memory_info = {[](int id) {
+            id = id + 1;
+            return onnxruntime::make_unique<STVMGPUAllocator>(VULKAN, "STVM");
+        }, std::numeric_limits<short>::max() };
+        allocator_ = CreateAllocator(default_memory_info);
         InsertAllocator(allocator_);
     }
 
     // Get environment variables
     const Env& env_instance = Env::Default();
-    
+
     const std::string dump_subgraphs_env = env_instance.GetEnvironmentVar(stvm_env_vars::kDumpSubgraphs);
     if (!dump_subgraphs_env.empty()) {
         dump_subgraphs_ = (std::stoi(dump_subgraphs_env) == 0 ? false : true);
@@ -124,7 +126,7 @@ StvmExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph_viewe
   auto status = graph_build.Resolve();
   std::string onnx_string_buffer;
   model_proto.SerializeToString(&onnx_string_buffer);
-#endif  
+#endif
 
   std::unordered_set<std::string> required_initializers;
   const std::vector<NodeIndex>& sorted_nodes = graph_viewer.GetNodesInTopologicalOrder();
@@ -135,13 +137,13 @@ StvmExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph_viewe
                   required_initializers.insert(node_arg.Name());
               }}, true);
   }
-      
+
   auto meta_def = onnxruntime::make_unique<::onnxruntime::IndexedSubGraph::MetaDef>();
   meta_def->name = "TVMStandalone";
   meta_def->domain = "StandaloneTest";
   std::vector<std::string> inputs;
   std::vector<std::string> outputs;
-      
+
   for (auto& nodeArgPtr : graph_viewer.GetInputs()) {
        inputs.push_back(nodeArgPtr->Name());
    }
@@ -202,7 +204,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         modules_[func_name] = module_ptr;
         return modules_[func_name].get();
     };
-    
+
     NodeComputeInfo compute_info;
 
     compute_info.create_state_func = [compiler](ComputeContext* context, FunctionState* state) {
@@ -258,7 +260,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
             auto tensor_info = ort.GetTensorTypeAndShape(output_tensor);
             auto tensor_type = ort.GetTensorElementType(tensor_info);
             ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
-            
+
             dl_tensors_outputs[i].ctx = GetDLContext(device);
             dl_tensors_outputs[i].dtype = GetDataType(tensor_type);
             dl_tensors_outputs[i].strides = nullptr;
@@ -285,8 +287,7 @@ std::unique_ptr<onnxruntime::IDataTransfer> StvmExecutionProvider::GetDataTransf
         return onnxruntime::make_unique<onnxruntime::CPUDataTransfer>();
     } else {
         ORT_NOT_IMPLEMENTED("STVM GetDataTransfer");
-    } 
+    }
 }
-    
-}  // namespace onnxruntime
 
+}  // namespace onnxruntime

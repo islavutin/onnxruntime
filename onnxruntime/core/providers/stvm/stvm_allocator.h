@@ -14,11 +14,11 @@ namespace onnxruntime {
 typedef enum {
     VULKAN = 0,
 } STVM_DEVICE_ID;
- 
-class STVMGPUAllocator : public IDeviceAllocator {
+
+class STVMGPUAllocator : public IAllocator {
  public:
   STVMGPUAllocator(int device_id, const char* name)
-    : IDeviceAllocator(
+    : IAllocator(
         OrtMemoryInfo(name, OrtAllocatorType::OrtDeviceAllocator,
                       OrtDevice(OrtDevice::GPU, OrtDevice::MemType::DEFAULT, device_id),
                       device_id, OrtMemTypeDefault)) { device_id_ = device_id;}
