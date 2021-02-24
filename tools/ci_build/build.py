@@ -473,6 +473,11 @@ def parse_arguments():
     parser.add_argument("--use_rocm", action='store_true', help="Build with ROCm")
     parser.add_argument("--rocm_home", help="Path to ROCm installation dir")
 
+    parser.add_argument(
+        "--use_stvm", action='store_true', help="Build with TVM execution provider.")
+    parser.add_argument(
+        "--stvm_home", help="Path to TVM installation for the TVM execution provider.")
+
     # Code coverage
     parser.add_argument("--code_coverage", action='store_true',
                         help="Generate code coverage when targetting Android (only).")
@@ -670,6 +675,9 @@ def generate_build_tree(cmake_path, source_dir, build_dir, cuda_home, cudnn_home
         "-Donnxruntime_USE_NUPHAR=" + ("ON" if args.use_nuphar else "OFF"),
         "-Donnxruntime_USE_TENSORRT=" + ("ON" if args.use_tensorrt else "OFF"),
         "-Donnxruntime_TENSORRT_HOME=" + (tensorrt_home if args.use_tensorrt else ""),
+        # set vars for standalone TVM
+        "-Donnxruntime_USE_STVM=" + ("ON" if args.use_stvm else "OFF"),
+        "-Donnxruntime_STVM_HOME=" + (os.path.join(source_dir, "external", "tvm_update")),
         # set vars for migraphx
         "-Donnxruntime_USE_MIGRAPHX=" + ("ON" if args.use_migraphx else "OFF"),
         "-Donnxruntime_MIGRAPHX_HOME=" + (migraphx_home if args.use_migraphx else ""),
