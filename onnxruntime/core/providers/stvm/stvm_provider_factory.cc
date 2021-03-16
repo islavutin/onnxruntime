@@ -30,7 +30,6 @@ std::shared_ptr<IExecutionProviderFactory> CreateExecutionProviderFactory_Stvm(c
 }  // namespace onnxruntime
 
 ORT_API_STATUS_IMPL(OrtSessionOptionsAppendExecutionProvider_Stvm, _In_ OrtSessionOptions* options, _In_ const char* backend_type) {
-  options->provider_factories.push_back(onnxruntime::CreateExecutionProviderFactory_Stvm(backend_type));
+  options->provider_factories.push_back(onnxruntime::CreateExecutionProviderFactory_Stvm("llvm"));
   return nullptr;
 }
-

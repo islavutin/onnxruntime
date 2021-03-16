@@ -34,6 +34,9 @@
 #ifdef USE_ROCM
 #include "core/providers/rocm/rocm_provider_factory_creator.h"
 #endif
+#ifdef USE_STVM
+#include "core/providers/stvm/stvm_provider_factory_creator.h"
+#endif
 
 struct OrtStatus {
   OrtErrorCode code;
@@ -514,7 +517,7 @@ static void RegisterExecutionProviders(InferenceSession* sess, const std::vector
                   return info;
                 }();
 
-      // This variable is never initialized because the APIs by which is it should be initialized are deprecated, however they still 
+      // This variable is never initialized because the APIs by which is it should be initialized are deprecated, however they still
       // exist are are in-use. Neverthless, it is used to return CUDAAllocator, hence we must try to initialize it here if we can
       // since FromProviderOptions might contain external CUDA allocator.
       external_allocator_info = info.external_allocator_info;
@@ -622,6 +625,10 @@ static void RegisterExecutionProviders(InferenceSession* sess, const std::vector
 #ifdef USE_RKNPU
       RegisterExecutionProvider(sess, *onnxruntime::CreateExecutionProviderFactory_Rknpu());
 #endif
+    } else if (type == kStvmExecutionProvider) {
+#ifdef USE_STVM
+      RegisterExecutionProvider(sess, *onnxruntime::CreateExecutionProviderFactory_Stvm("llvm"));
+#endif
     } else {
       // unknown provider
       throw std::runtime_error("Unknown Provider Type: " + type);
@@ -634,7 +641,7 @@ static void RegisterExecutionProviders(InferenceSession* sess, const std::vector
  *
  * @param providers vector of excution providers. [ep1, ep2, ...]
  * @param provider_options_vector vector of excution provider options. [option1, option2 ...]
- * @param provider_options_map an unordered map for mapping excution provider to excution provider options. 
+ * @param provider_options_map an unordered map for mapping excution provider to excution provider options.
  *        {'ep1' -> option1, 'ep2' -> option2 ...}
  *
  */
@@ -1422,7 +1429,7 @@ Set this option to false if you don't want it. Default is True.)pbdoc")
                      R"pbdoc(The prefix of the profile file. The current time will be appended to the file name.)pbdoc")
       .def_readwrite("optimized_model_filepath", &PySessionOptions::optimized_model_filepath,
                      R"pbdoc(
-File path to serialize optimized model to. 
+File path to serialize optimized model to.
 Optimized model is not serialized unless optimized_model_filepath is set.
 Serialized model format will default to ONNX unless:
  - add_session_config_entry is used to set 'session.save_model_format' to 'ORT', or

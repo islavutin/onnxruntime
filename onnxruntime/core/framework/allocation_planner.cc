@@ -497,7 +497,12 @@ class PlannerImpl {
           // matching logic is used in TransformerMemcpyImpl::ProcessDefs
           if (!is_implicit_input) {
             OrtMemType mem_type = p_kernel_def->InputMemoryType(arg_idx);
-            plan_.SetLocation(static_cast<size_t>(index), exec_provider->GetAllocator(0, mem_type)->Info());
+            auto allocator =  exec_provider->GetAllocator(0, mem_type);
+            if (!allocator) {
+              throw std::runtime_error("issue with allocator");
+            }
+            auto info = allocator->Info();
+            plan_.SetLocation(static_cast<size_t>(index), info);
           }
         }
 
