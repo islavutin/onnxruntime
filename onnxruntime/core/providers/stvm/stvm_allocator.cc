@@ -9,32 +9,22 @@
 
 namespace onnxruntime {
 
-DLContext STVMGPUAllocator::get_context() {
-    DLContext ctx;
-    switch (device_id_) {
-    case VULKAN:
-      ctx = {kDLVulkan, 0};
-      break;
-    default:
-        ORT_NOT_IMPLEMENTED("STVMGPUAllocator");
-        break;
-    }
-    return ctx;
-}
-    
-void* STVMGPUAllocator::Alloc(size_t size) {
+
+void* STVMAllocator::Alloc(size_t size) {
+  LOG(INFO) << "allocating " << size;
 
   void* p = nullptr;
   if (size > 0) {
-    DLContext ctx = get_context();
     DLDataType dl_type{kDLInt, 8, 1};
-    TVMDeviceAllocDataSpace(ctx, size, STVM_ALLOC_ALIGN, dl_type, (void**)&p);
+    int err = TVMDeviceAllocDataSpace(ctx, size, 128, dl_type, (void**)&p);
+    CHECK_EQ(err, 0);
+    LOG(INFO) << "allocated " << p;
+    return p;
   }
   return p;
 }
 
-void STVMGPUAllocator::Free(void* p) {
-    DLContext ctx = get_context();
+void STVMAllocator::Free(void* p) {
     TVMDeviceFreeDataSpace(ctx, p);
 }
 

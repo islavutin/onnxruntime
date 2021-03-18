@@ -1027,7 +1027,6 @@ if (onnxruntime_USE_STVM)
   # link_directories(onnxruntime_test_all ${STVM_LIBS})
   find_library(PYTHON_LIBS NAMES libpython PATHS /usr/local/lib)
   #target_link_libraries(onnxruntime_test_all PRIVATE ${PYTHON_LIBRARIES} -lutil)
-  target_link_libraries(onnxruntime_test_all PRIVATE /home/jroesch/.pyenv/versions/3.6.12/lib/libpython3.so -lutil)
   # set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-rpath,${STVM_LIBS}")
 endif()
 

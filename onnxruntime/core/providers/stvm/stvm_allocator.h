@@ -11,23 +11,27 @@ namespace onnxruntime {
 
 #define STVM_ALLOC_ALIGN 128
 
-typedef enum {
-    VULKAN = 0,
-} STVM_DEVICE_ID;
-
-class STVMGPUAllocator : public IAllocator {
+class STVMAllocator : public IAllocator {
  public:
-  STVMGPUAllocator(int device_id, const char* name)
-    : IAllocator(
-        OrtMemoryInfo(name, OrtAllocatorType::OrtDeviceAllocator,
-                      OrtDevice(OrtDevice::GPU, OrtDevice::MemType::DEFAULT, device_id),
-                      device_id, OrtMemTypeDefault)) { device_id_ = device_id;}
+   STVMAllocator() : STVMAllocator(OrtMemoryInfo("TVM", OrtAllocatorType::OrtDeviceAllocator, OrtDevice(OrtDevice::CPU, OrtDevice::MemType::DEFAULT, 0), 0, OrtMemTypeDefault)) {}
+  explicit STVMAllocator(const OrtMemoryInfo& info)
+    : IAllocator(info) {
+      switch (info.device.Type()) {
+      case OrtDevice::CPU:
+          ctx = {kDLCPU, info.device.Id()};
+          break;
+      case OrtDevice::GPU:
+          ctx = {kDLVulkan, info.device.Id()};
+          break;
+      default:
+          ORT_NOT_IMPLEMENTED("Unsupported device");
+          break;
+      }
+    }
 
   virtual void* Alloc(size_t size) override;
   virtual void Free(void* p) override;
-  DLContext get_context();
- private:
-  int device_id_;
+  TVMContext ctx;
 };
 
 }  // namespace onnxruntime

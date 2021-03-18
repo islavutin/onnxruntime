@@ -1118,7 +1118,7 @@ if (onnxruntime_USE_STVM)
     ${onnxruntime_STVM_HOME}/3rdparty/dlpack/include
     ${onnxruntime_STVM_HOME}/3rdparty/dmlc-core/include
     ${PYTHON_INLCUDE_DIRS})
-  target_link_libraries(onnxruntime_providers_stvm PRIVATE /home/jroesch/Git/msft_onnxrt/onnxruntime/cmake/external/tvm_update/build/libtvm.so)
+  target_link_libraries(onnxruntime_providers_stvm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/tvm_update/build/libtvm.so)
   set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-rpath,${onnxruntime_STVM_HOME}/build")
 #  target_compile_options(onnxruntime_providers_stvm PRIVATE -Wno-error=sign-compare)
 endif()
