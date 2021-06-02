@@ -25,6 +25,8 @@
 #include "core/graph/model.h"
 #include "core/providers/cuda/gpu_data_transfer.h"
 
+#include "NvInferRuntime.h"   // XXX MDW - For IProfiler
+
 using namespace ONNX_NAMESPACE;
 using namespace ::onnxruntime::logging;
 namespace {
@@ -34,6 +36,14 @@ struct KernelRegistryAndStatus {
 };
 }  // namespace
 namespace onnxruntime {
+
+// XXX MDW
+class TensorrtProfiler : public nvinfer1::IProfiler {   
+  public:
+    void reportLayerTime(const char* layerName, float ms) override {   
+      std::cout << layerName << ": " << ms << "ms" << std::endl;
+    }
+};
 
 ONNX_OPERATOR_KERNEL_EX(
     MemcpyFromHost,
@@ -757,6 +767,7 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
                              "TensorRT EP could not build Execution Context for fused node: " + fused_node->Name());
     }
 
+
     // Get input shape and binding index
     int num_inputs = trt_network->getNbInputs();
     input_indexes.resize(num_inputs);
@@ -856,6 +867,7 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
       // Update shape ranges
       bool dimension_update = false;
       auto trt_context = trt_state->context->get();
+
       auto trt_builder = trt_state->builder;
       nvinfer1::IOptimizationProfile* trt_profile = nullptr;
       for (int i = 0, end = num_binding_inputs; i < end; ++i) {
@@ -1023,6 +1035,11 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
                                  "TensorRT EP output onnx tensor data type: " + std::to_string(output_types[i]) + " not supported.");
         }
       }
+
+      // MDW Hacking - Add profiler
+      std::cout << "MDW: Creating profiler";
+      TensorrtProfiler profiler;
+      trt_context->setProfiler(&profiler);
 
       // Run TRT inference
       if (!trt_context->enqueueV2(&buffers[0], nullptr, nullptr)) {
