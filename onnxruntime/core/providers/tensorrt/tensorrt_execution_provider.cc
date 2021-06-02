@@ -25,8 +25,6 @@
 #include "core/graph/model.h"
 #include "core/providers/cuda/gpu_data_transfer.h"
 
-#include "NvInferRuntime.h"   // XXX MDW - For IProfiler
-
 using namespace ONNX_NAMESPACE;
 using namespace ::onnxruntime::logging;
 namespace {
@@ -36,14 +34,6 @@ struct KernelRegistryAndStatus {
 };
 }  // namespace
 namespace onnxruntime {
-
-// XXX MDW
-class TensorrtProfiler : public nvinfer1::IProfiler {   
-  public:
-    void reportLayerTime(const char* layerName, float ms) override {   
-      std::cout << layerName << ": " << ms << "ms" << std::endl;
-    }
-};
 
 ONNX_OPERATOR_KERNEL_EX(
     MemcpyFromHost,
@@ -149,6 +139,11 @@ TensorrtExecutionProvider::TensorrtExecutionProvider(const TensorrtExecutionProv
   const std::string dump_subgraphs_env = env_instance.GetEnvironmentVar(tensorrt_env_vars::kDumpSubgraphs);
   if (!dump_subgraphs_env.empty()) {
     dump_subgraphs_ = (std::stoi(dump_subgraphs_env) == 0 ? false : true);
+  }
+
+  const std::string profile_outfile_env = env_instance.GetEnvironmentVar(tensorrt_env_vars::kProfileOutfile);
+  if (!profile_outfile_env.empty()) {
+    profiler_ = new TensorrtProfiler(profile_outfile_env.c_str());
   }
 }
 
@@ -830,6 +825,8 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
     input_shape_ranges_[fused_node->Name()] = input_shape_ranges;
     output_shapes_[fused_node->Name()] = output_shapes;
 
+    //auto profiler_ptr = tensorrt_ptr::unique_pointer<TensorrtProfiler>(profiler_);
+
     // Create function state
     // TODO: remove default capture
     NodeComputeInfo compute_info;
@@ -839,7 +836,7 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
             &engines_[context->node_name], &contexts_[context->node_name], builders_[context->node_name].get(),
             networks_[context->node_name].get(), input_info_[context->node_name], output_info_[context->node_name],
             input_shape_ranges_[context->node_name], output_shapes_[context->node_name], &tensorrt_mu_, &fp16_enable_,
-            &max_workspace_size_};
+            &max_workspace_size_, profiler_};
       *state = p.release();
       return 0;
     };
@@ -1037,9 +1034,9 @@ common::Status TensorrtExecutionProvider::Compile(const std::vector<onnxruntime:
       }
 
       // MDW Hacking - Add profiler
-      std::cout << "MDW: Creating profiler";
-      TensorrtProfiler profiler;
-      trt_context->setProfiler(&profiler);
+      if (trt_state->profiler_ptr) {
+        trt_context->setProfiler(trt_state->profiler_ptr);
+      }
 
       // Run TRT inference
       if (!trt_context->enqueueV2(&buffers[0], nullptr, nullptr)) {

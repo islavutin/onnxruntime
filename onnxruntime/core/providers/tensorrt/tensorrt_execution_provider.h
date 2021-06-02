@@ -3,9 +3,12 @@
 
 #pragma once
 #include <ctime>
+#include <fstream>
+#include <iostream>
 #include "core/common/logging/logging.h"
 #include "core/framework/op_kernel.h"
 #include "NvInfer.h"
+#include "NvInferRuntime.h"
 #include "NvOnnxParser.h"
 #include "core/platform/ort_mutex.h"
 
@@ -17,6 +20,7 @@ static const std::string kMinSubgraphSize = "ORT_TENSORRT_MIN_SUBGRAPH_SIZE";
 static const std::string kMaxWorkspaceSize = "ORT_TENSORRT_MAX_WORKSPACE_SIZE";
 static const std::string kFP16Enable = "ORT_TENSORRT_FP16_ENABLE";
 static const std::string kDumpSubgraphs = "ORT_TENSORRT_DUMP_SUBGRAPHS";
+static const std::string kProfileOutfile = "ORT_TENSORRT_PROFILE_OUTFILE";
 }  // namespace tensorrt_env_vars
 
 class TensorrtLogger : public nvinfer1::ILogger {
@@ -36,6 +40,30 @@ class TensorrtLogger : public nvinfer1::ILogger {
       LOGS_DEFAULT(WARNING) << "[" << buf << " " << sevstr << "] " << msg;
     }
   }
+};
+
+// TensorRT profiler to emit per-layer performance metrics to a file.
+class TensorrtProfiler : public nvinfer1::IProfiler {
+  public:
+    TensorrtProfiler(const char* filename) {
+      outfile_.open(filename);
+      if (!outfile_) {
+        LOGS_DEFAULT(WARNING) << "Unable to open profile output file " << filename;
+      }
+    }
+    ~TensorrtProfiler() {
+      if (outfile_) {
+        outfile_.close();
+      }
+    }
+
+    void reportLayerTime(const char* layerName, float ms) override {
+      outfile_ << layerName << ": " << ms << "ms" << std::endl;
+    }
+
+  private:
+    std::ofstream outfile_;
+
 };
 
 namespace tensorrt_ptr {
@@ -76,6 +104,7 @@ struct TensorrtFuncState {
   OrtMutex* tensorrt_mu_ptr = nullptr;
   bool* fp16_enable_ptr = nullptr;
   size_t* max_workspace_size_ptr = nullptr;
+  TensorrtProfiler* profiler_ptr = nullptr;
 };
 
 // Logical device representation.
@@ -104,7 +133,7 @@ class TensorrtExecutionProvider : public IExecutionProvider {
   int min_subgraph_size_ = 1;
   bool fp16_enable_ = false;
   bool dump_subgraphs_ = false;
-
+  TensorrtProfiler* profiler_ = nullptr;
 
   OrtMutex tensorrt_mu_;
   int device_id_;
