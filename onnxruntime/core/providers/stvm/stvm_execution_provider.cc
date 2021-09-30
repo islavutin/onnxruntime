@@ -35,8 +35,8 @@ static DLDataType GetDataType(ONNXTensorElementDataType type) {
   }
 }
 
-static DLContext GetDLContext(const OrtDevice& device) {
-  DLContext context;
+static DLDevice GetDLDevice(const OrtDevice& device) {
+  DLDevice context;
   switch (device.Type()) {
     case OrtDevice::CPU:
       context = {kDLCPU, 0};
@@ -241,7 +241,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         LOG(INFO) << s.str();
 
         DLTensor t;
-        t.ctx = GetDLContext(device);
+        t.ctx = GetDLDevice(device);
         t.dtype = GetDataType(tensor_type);
         t.strides = nullptr;
         t.byte_offset = 0;
@@ -270,7 +270,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
 
         DLTensor t;
-        t.ctx = GetDLContext(device);
+        t.ctx = GetDLDevice(device);
         t.dtype = GetDataType(tensor_type);
         t.strides = nullptr;
         t.byte_offset = 0;

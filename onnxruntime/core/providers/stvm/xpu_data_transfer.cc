@@ -25,17 +25,17 @@ common::Status GPUDataTransfer::CopyTensor(const Tensor& src, Tensor& dst, int _
   if ((src_device.Type() == OrtDevice::CPU) && (dst_device.Type() == OrtDevice::CPU)) {
       memcpy(dst_data, src_data, bytes);
   } else {
-    DLContext src_context = get_context(src_device);
-    DLContext dst_context = get_context(dst_device);
+    DLDevice src_context = get_context(src_device);
+    DLDevice dst_context = get_context(dst_device);
     DLDataType dl_type{kDLInt, 8, 1};
     TVMDeviceCopyDataFromTo(src_data, 0, dst_data, 0, bytes, src_context, dst_context, dl_type, nullptr);
   }
   return Status::OK();
 }
 
-DLContext GPUDataTransfer::get_context(const OrtDevice& device) const
+DLDevice GPUDataTransfer::get_context(const OrtDevice& device) const
 {
-  DLContext context;
+  DLDevice context;
   switch (device.Type()) {
   case OrtDevice::CPU:
       context = {kDLCPU, 0};

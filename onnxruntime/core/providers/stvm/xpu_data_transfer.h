@@ -19,7 +19,7 @@ class GPUDataTransfer : public IDataTransfer {
   // Dumpen MSVC warning about not fully overriding
   using IDataTransfer::CopyTensor;
   common::Status CopyTensor(const Tensor& src, Tensor& dst, int exec_queue_id) const override;
-  DLContext get_context(const OrtDevice& device) const;
+  DLDevice get_context(const OrtDevice& device) const;
 };
 
 }  // namespace onnxruntime
