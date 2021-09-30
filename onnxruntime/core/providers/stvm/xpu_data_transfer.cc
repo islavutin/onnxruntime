@@ -28,7 +28,7 @@ common::Status GPUDataTransfer::CopyTensor(const Tensor& src, Tensor& dst, int _
     DLDevice src_context = get_context(src_device);
     DLDevice dst_context = get_context(dst_device);
     DLDataType dl_type{kDLInt, 8, 1};
-    TVMDeviceCopyDataFromTo(src_data, 0, dst_data, 0, bytes, src_context, dst_context, dl_type, nullptr);
+    TVMDeviceCopyRawDataFromTo(src_data, 0, dst_data, 0, bytes, src_context, dst_context, dl_type, nullptr);
   }
   return Status::OK();
 }
