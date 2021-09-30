@@ -31,7 +31,7 @@ class STVMAllocator : public IAllocator {
 
   virtual void* Alloc(size_t size) override;
   virtual void Free(void* p) override;
-  TVMContext ctx;
+  DLDevice ctx;
 };
 
 }  // namespace onnxruntime

@@ -241,7 +241,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         LOG(INFO) << s.str();
 
         DLTensor t;
-        t.ctx = GetDLDevice(device);
+        t.device = GetDLDevice(device);
         t.dtype = GetDataType(tensor_type);
         t.strides = nullptr;
         t.byte_offset = 0;
@@ -270,7 +270,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
 
         DLTensor t;
-        t.ctx = GetDLDevice(device);
+        t.device = GetDLDevice(device);
         t.dtype = GetDataType(tensor_type);
         t.strides = nullptr;
         t.byte_offset = 0;
