@@ -485,7 +485,7 @@ static const std::unordered_map<OrtDevice::DeviceType, MemCpyFunc>* GetCudaToHos
  */
 static void RegisterExecutionProviders(InferenceSession* sess, const std::vector<std::string>& provider_types,
                                        const ProviderOptionsMap& provider_options_map) {
-  ORT_UNUSED_PARAMETER(provider_options_map);
+  //ORT_UNUSED_PARAMETER(provider_options_map);
 
   for (const std::string& type : provider_types) {
     if (type == kCpuExecutionProvider) {
@@ -627,7 +627,13 @@ static void RegisterExecutionProviders(InferenceSession* sess, const std::vector
 #endif
     } else if (type == kStvmExecutionProvider) {
 #ifdef USE_STVM
-      RegisterExecutionProvider(sess, *onnxruntime::CreateExecutionProviderFactory_Stvm("llvm"));
+      const auto it = provider_options_map.find(type);
+      const StvmExecutionProviderInfo info =
+          it != provider_options_map.end()
+              ? StvmExecutionProviderInfo::FromProviderOptions(it->second)
+              : StvmExecutionProviderInfo();
+      RegisterExecutionProvider(
+          sess, *onnxruntime::CreateExecutionProviderFactory_Stvm(info));
 #endif
     } else {
       // unknown provider

@@ -1,10 +1,12 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#pragma once
+#ifndef STVM_EXECUTION_PROVIDER_H
+#define STVM_EXECUTION_PROVIDER_H
 
 #include "core/common/logging/logging.h"
 #include "core/framework/execution_provider.h"
+#include "core/providers/stvm/stvm_execution_provider_info.h"
 #include "core/platform/ort_mutex.h"
 #include "stvm_common.h"
 
@@ -13,11 +15,6 @@ namespace onnxruntime {
 namespace stvm_env_vars {
    static const std::string kDumpSubgraphs = "ORT_STVM_DUMP_SUBGRAPHS";
 }  // namespace stvm_env_vars
-
-// Information needed to construct an TVM execution provider.
-struct StvmExecutionProviderInfo {
-  const std::string backend_type;
-};
 
 // Information to construct kernel function state.
 struct StvmFuncState {
@@ -47,8 +44,10 @@ class StvmExecutionProvider : public IExecutionProvider {
   bool dump_subgraphs_ = false;
   OrtMutex stvm_mu_;
   AllocatorPtr allocator_;
-  std::string backend_type_;
+  StvmExecutionProviderInfo info_;
   std::unordered_map<std::string, std::shared_ptr<tvm::runtime::Module>> modules_;
 };
 
 }  // namespace onnxruntime
+
+#endif  // STVM_EXECUTION_PROVIDER_H

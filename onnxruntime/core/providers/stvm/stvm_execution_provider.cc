@@ -31,7 +31,7 @@ static DLDataType GetDataType(ONNXTensorElementDataType type) {
   } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32) {
     return {kDLInt, 32, 1};
   } else {
-    ORT_THROW("not implement.");
+    ORT_NOT_IMPLEMENTED("Unsupported data type");
   }
 }
 
@@ -60,9 +60,11 @@ struct STVMFuncState {
 };
 
 StvmExecutionProvider::StvmExecutionProvider(const StvmExecutionProviderInfo& info)
-    : IExecutionProvider{onnxruntime::kStvmExecutionProvider} {
-  backend_type_ = info.backend_type;
-  CHECK_EQ(backend_type_, std::string("llvm")) << "Only cpu allocator supported";
+    : IExecutionProvider{onnxruntime::kStvmExecutionProvider},
+      info_{info} {
+  // TODO(vvchernov): extend supported targets
+  CHECK_EQ(info.target, std::string("llvm")) << "Only cpu allocator supported";
+  CHECK_EQ(info.target_host, std::string("llvm")) << "Only cpu allocator supported";
   AllocatorCreationInfo default_memory_info = {[](int) {
                                                  return onnxruntime::make_unique<STVMAllocator>();
                                                },
@@ -192,7 +194,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         return modules_[func_name].get();
       }
 
-      tvm::runtime::Module mod_f = TVMCompile(string_buf, backend_type_, "llvm", 3, input_shapes);
+      tvm::runtime::Module mod_f = TVMCompile(string_buf, info_.target, info_.target_host, info_.opt_level, input_shapes);
       auto module_ptr = std::make_shared<tvm::runtime::Module>();
       *module_ptr = mod_f;
       modules_[func_name] = module_ptr;
@@ -291,9 +293,10 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
 
 
 std::unique_ptr<onnxruntime::IDataTransfer> StvmExecutionProvider::GetDataTransfer() const {
-  if (backend_type_.find("vulkan") != std::string::npos) {
+  //TODO(vvchernov): target or target host?
+  if (info_.target.find("vulkan") != std::string::npos) {
     return onnxruntime::make_unique<onnxruntime::GPUDataTransfer>();
-  } else if (backend_type_.find("llvm") != std::string::npos) {
+  } else if (info_.target.find("llvm") != std::string::npos) {
     LOG(INFO) << "transfering data";
     return onnxruntime::make_unique<onnxruntime::CPUDataTransfer>();
   } else {

@@ -11,25 +11,28 @@ using namespace onnxruntime;
 namespace onnxruntime {
 
 struct StvmProviderFactory : IExecutionProviderFactory {
-  StvmProviderFactory(std::string&& type) : backend_type_(std::move(type)) {}
+  StvmProviderFactory(const StvmExecutionProviderInfo& info) : info_{info} {}
   ~StvmProviderFactory() = default;
 
   std::unique_ptr<IExecutionProvider> CreateProvider() override {
-    StvmExecutionProviderInfo info{backend_type_};
-    return onnxruntime::make_unique<StvmExecutionProvider>(info);
+    return onnxruntime::make_unique<StvmExecutionProvider>(info_);
  }
 
  private:
-    const std::string backend_type_;
+    StvmExecutionProviderInfo info_;
 };
 
 
-std::shared_ptr<IExecutionProviderFactory> CreateExecutionProviderFactory_Stvm(const char* backend_type) {
-    return std::make_shared<onnxruntime::StvmProviderFactory>(std::string{backend_type});
+std::shared_ptr<IExecutionProviderFactory> CreateExecutionProviderFactory_Stvm(const StvmExecutionProviderInfo& info) {
+    return std::make_shared<onnxruntime::StvmProviderFactory>(info);
 }
 }  // namespace onnxruntime
 
+// TODO(vvchernov): check API, may be need extension
 ORT_API_STATUS_IMPL(OrtSessionOptionsAppendExecutionProvider_Stvm, _In_ OrtSessionOptions* options, _In_ const char* backend_type) {
-  options->provider_factories.push_back(onnxruntime::CreateExecutionProviderFactory_Stvm("llvm"));
+  StvmExecutionProviderInfo info;
+  info.target = std::string{backend_type};
+
+  options->provider_factories.push_back(onnxruntime::CreateExecutionProviderFactory_Stvm(info));
   return nullptr;
 }
