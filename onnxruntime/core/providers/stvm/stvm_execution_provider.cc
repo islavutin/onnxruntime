@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include <fstream>
+
 #include "core/graph/onnx_protobuf.h"
 #include "core/session/onnxruntime_cxx_api.h"
 #include "core/framework/execution_provider.h"
@@ -13,9 +14,11 @@
 #include "core/common/status.h"
 #include "onnx/shape_inference/implementation.h"
 #include "core/graph/model.h"
+
 #include "stvm_execution_provider.h"
 #include "xpu_data_transfer.h"
 #include "stvm_allocator.h"
+#include "stvm_api.h"
 
 using namespace ONNX_NAMESPACE;
 
@@ -194,7 +197,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         return modules_[func_name].get();
       }
 
-      tvm::runtime::Module mod_f = TVMCompile(string_buf, info_.target, info_.target_host, info_.opt_level, input_shapes);
+      tvm::runtime::Module mod_f = stvm::TVMCompile(string_buf, info_.target, info_.target_host, info_.opt_level, input_shapes);
       auto module_ptr = std::make_shared<tvm::runtime::Module>();
       *module_ptr = mod_f;
       modules_[func_name] = module_ptr;
@@ -259,7 +262,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
 
       std::vector<std::vector<int64_t>> output_shapes;
       tvm::runtime::Module* mod = tvm_state->compiler(func_name, input_shapes);
-      TVMExtractOutputShapes(*mod, num_outputs, output_shapes);
+      stvm::TVMExtractOutputShapes(*mod, num_outputs, output_shapes);
 
       for (auto i = 0u; i < num_outputs; i++) {
         //setup output tensor property
@@ -283,7 +286,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         dl_tensors_outputs.push_back(t);
       }
       tvm::runtime::TVMRetValue rvalue;
-      TVMRun(*mod, dl_tensors_inputs, dl_tensors_outputs, &rvalue);
+      stvm::TVMRun(*mod, dl_tensors_inputs, dl_tensors_outputs, &rvalue);
       return Status::OK();
     };
     node_compute_funcs.push_back(compute_info);

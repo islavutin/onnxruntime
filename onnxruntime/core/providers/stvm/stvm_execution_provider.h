@@ -8,6 +8,7 @@
 #include "core/framework/execution_provider.h"
 #include "core/providers/stvm/stvm_execution_provider_info.h"
 #include "core/platform/ort_mutex.h"
+
 #include "stvm_common.h"
 
 namespace onnxruntime {
