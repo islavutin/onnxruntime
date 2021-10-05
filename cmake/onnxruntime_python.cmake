@@ -447,8 +447,16 @@ if (onnxruntime_ENABLE_LANGUAGE_INTEROP_OPS)
 endif()
 
 if (onnxruntime_USE_STVM)
+  file(GLOB onnxruntime_python_providers_stvm_srcs CONFIGURE_DEPENDS
+    "${ONNXRUNTIME_ROOT}/python/providers/stvm/*.py"
+  )
   add_custom_command(
     TARGET onnxruntime_pybind11_state POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${test_data_target}>/onnxruntime/providers
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${test_data_target}>/onnxruntime/providers/stvm
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${onnxruntime_python_providers_stvm_srcs}
+        $<TARGET_FILE_DIR:${test_data_target}>/onnxruntime/providers/stvm
     COMMAND ${CMAKE_COMMAND} -E copy
         ${DNNL_DLL_PATH} $<TARGET_FILE:onnxruntime_providers_stvm>
         $<TARGET_FILE_DIR:${test_data_target}>/onnxruntime/capi/

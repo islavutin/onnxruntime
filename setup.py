@@ -16,6 +16,7 @@ import datetime
 
 nightly_build = False
 featurizers_build = False
+stvm_build = False
 package_name = 'onnxruntime'
 wheel_name_suffix = None
 
@@ -67,6 +68,7 @@ elif '--use_dml' in sys.argv:
     sys.argv.remove('--use_dml')
 elif '--use_stvm' in sys.argv:
     package_name = 'onnxruntime-stvm'
+    stvm_build = True
     sys.argv.remove('--use_stvm')
 
 # PEP 513 defined manylinux1_x86_64 and manylinux1_i686
@@ -233,6 +235,11 @@ packages = [
     'onnxruntime.transformers',
     'onnxruntime.transformers.longformer',
 ]
+
+if stvm_build:
+    packages += [
+        'onnxruntime.providers.stvm'
+    ]
 
 if '--enable_training' in sys.argv:
     packages.extend(['onnxruntime.training',
