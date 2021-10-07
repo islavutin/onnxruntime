@@ -4,7 +4,6 @@
 #include <fstream>
 
 #include "core/graph/onnx_protobuf.h"
-#include "core/session/onnxruntime_cxx_api.h"
 #include "core/framework/execution_provider.h"
 #include "core/framework/op_kernel.h"
 #include "core/framework/kernel_registry.h"
@@ -18,41 +17,12 @@
 #include "stvm_execution_provider.h"
 #include "xpu_data_transfer.h"
 #include "stvm_allocator.h"
+#include "stvm_utils.h"
 #include "stvm_api.h"
 
 using namespace ONNX_NAMESPACE;
 
 namespace onnxruntime {
-
-static DLDataType GetDataType(ONNXTensorElementDataType type) {
-  if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE) {
-    return {kDLFloat, 64, 1};
-  } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
-    return {kDLFloat, 32, 1};
-  } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
-    return {kDLInt, 64, 1};
-  } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32) {
-    return {kDLInt, 32, 1};
-  } else {
-    ORT_NOT_IMPLEMENTED("Unsupported data type");
-  }
-}
-
-static DLDevice GetDLDevice(const OrtDevice& device) {
-  DLDevice context;
-  switch (device.Type()) {
-    case OrtDevice::CPU:
-      context = {kDLCPU, 0};
-      break;
-    case OrtDevice::GPU:
-      context = {kDLVulkan, 0};
-      break;
-    default:
-      ORT_NOT_IMPLEMENTED("Unsupported device");
-      break;
-  }
-  return context;
-}
 
 struct STVMFuncState {
   AllocateFunc allocate_func = nullptr;

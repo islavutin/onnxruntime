@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "xpu_data_transfer.h"
+#include "stvm_utils.h"
 
 namespace onnxruntime {
 GPUDataTransfer::GPUDataTransfer() {
@@ -25,10 +26,27 @@ common::Status GPUDataTransfer::CopyTensor(const Tensor& src, Tensor& dst, int _
   if ((src_device.Type() == OrtDevice::CPU) && (dst_device.Type() == OrtDevice::CPU)) {
       memcpy(dst_data, src_data, bytes);
   } else {
-    DLDevice src_context = get_context(src_device);
-    DLDevice dst_context = get_context(dst_device);
+    DLTensor tvm_src, tvm_dst;
     DLDataType dl_type{kDLInt, 8, 1};
-    TVMDeviceCopyRawDataFromTo(src_data, 0, dst_data, 0, bytes, src_context, dst_context, dl_type, nullptr);
+    std::vector<int64_t> shape{int64_t(bytes)};
+    // Construct source DLTensor
+    tvm_src.device = GetDLDevice(src_device);
+    tvm_src.dtype = dl_type;
+    tvm_src.strides = nullptr;
+    tvm_src.byte_offset = 0;
+    tvm_src.data = const_cast<void*>(src_data);
+    tvm_src.ndim = 1;
+    tvm_src.shape = shape.data();
+    // Construct destination DLTensor
+    tvm_dst.device = GetDLDevice(dst_device);
+    tvm_dst.dtype = dl_type;
+    tvm_dst.strides = nullptr;
+    tvm_dst.byte_offset = 0;
+    tvm_dst.data = dst_data;
+    tvm_dst.ndim = 1;
+    tvm_dst.shape = shape.data();
+    // Copying from src to dst
+    TVMDeviceCopyDataFromTo(&tvm_src, &tvm_dst, nullptr);
   }
   return Status::OK();
 }
