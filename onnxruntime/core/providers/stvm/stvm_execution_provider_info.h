@@ -13,8 +13,10 @@ struct StvmExecutionProviderInfo {
   std::string target{"llvm"};
   std::string target_host{"llvm"};
   uint opt_level{3};
+  std::string tuning_file_path{""};
 
   static StvmExecutionProviderInfo FromProviderOptions(const ProviderOptions& options);
+  static StvmExecutionProviderInfo FromOptionsString(const char* options);
 };
 
 }  // namespace onnxruntime

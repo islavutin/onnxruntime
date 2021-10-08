@@ -28,11 +28,8 @@ std::shared_ptr<IExecutionProviderFactory> CreateExecutionProviderFactory_Stvm(c
 }
 }  // namespace onnxruntime
 
-// TODO(vvchernov): check API, may be need extension
-ORT_API_STATUS_IMPL(OrtSessionOptionsAppendExecutionProvider_Stvm, _In_ OrtSessionOptions* options, _In_ const char* backend_type) {
-  StvmExecutionProviderInfo info;
-  info.target = std::string{backend_type};
-
+ORT_API_STATUS_IMPL(OrtSessionOptionsAppendExecutionProvider_Stvm, _In_ OrtSessionOptions* options, _In_ const char* settings) {
+  StvmExecutionProviderInfo info = onnxruntime::StvmExecutionProviderInfo::FromOptionsString(settings);
   options->provider_factories.push_back(onnxruntime::CreateExecutionProviderFactory_Stvm(info));
   return nullptr;
 }

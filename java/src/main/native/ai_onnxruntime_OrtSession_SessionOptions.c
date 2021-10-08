@@ -510,14 +510,14 @@ JNIEXPORT void JNICALL Java_ai_onnxruntime_OrtSession_00024SessionOptions_addACL
  * Signature: (JJI)V
  */
 JNIEXPORT void JNICALL Java_ai_onnxruntime_OrtSession_00024SessionOptions_addStvm
-  (JNIEnv * jniEnv, jobject jobj, jlong apiHandle, jlong handle, jstring backendString) {
+  (JNIEnv * jniEnv, jobject jobj, jlong apiHandle, jlong handle, jstring settingsString) {
     (void)jobj;
   #ifdef USE_STVM
-    const char* backendType = (*jniEnv)->GetStringUTFChars(jniEnv, backendString, NULL);
-    checkOrtStatus(jniEnv,(const OrtApi*)apiHandle,OrtSessionOptionsAppendExecutionProvider_Stvm((OrtSessionOptions*) handle, backendType));
-    (*jniEnv)->ReleaseStringUTFChars(jniEnv,backendString,backendType);
+    const char* settings = (*jniEnv)->GetStringUTFChars(jniEnv, settingsString, NULL);
+    checkOrtStatus(jniEnv,(const OrtApi*)apiHandle,OrtSessionOptionsAppendExecutionProvider_Stvm((OrtSessionOptions*) handle, settings));
+    (*jniEnv)->ReleaseStringUTFChars(jniEnv,settingsString,settings);
   #else
-    (void)apiHandle;(void)handle;(void)backendString; // Parameters used when Stvm is defined.
+    (void)apiHandle;(void)handle;(void)settingsString; // Parameters used when Stvm is defined.
     throwOrtException(jniEnv,convertErrorCode(ORT_INVALID_ARGUMENT),"This binary was not compiled with Stvm support.");
   #endif
 }

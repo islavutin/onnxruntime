@@ -582,7 +582,7 @@ namespace Microsoft.ML.OnnxRuntime
                                                                                                      IntPtr /*(char char*)*/ settings);
 
         [DllImport((nativeLib, CharSet = charSet)]
-        public static extern IntPtr /*(OrtStatus*)*/ OrtSessionOptionsAppendExecutionProvider_Stvm(IntPtr /*(OrtSessionOptions*) */ options, string /*(const char*)*/ backend_type);
+        public static extern IntPtr /*(OrtStatus*)*/ OrtSessionOptionsAppendExecutionProvider_Stvm(IntPtr /*(OrtSessionOptions*) */ options, string /*(const char*)*/ settings);
 
         //[DllImport(nativeLib, CharSet = charSet)]
         //public static extern void OrtAddCustomOp(IntPtr /*(OrtSessionOptions*)*/ options, string custom_op_path);

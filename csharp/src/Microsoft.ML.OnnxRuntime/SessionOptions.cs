@@ -95,13 +95,23 @@ namespace Microsoft.ML.OnnxRuntime
         }
 
         /// <summary>
+        /// A helper method to construct a SessionOptions object for Stvm execution.
         /// Use only if you have the onnxruntime package specific to this Execution Provider.
         /// </summary>
-        public void AppendExecutionProvider_Stvm(string backendType)
+        /// <param name="settings">settings string, comprises of comma separated key:value pairs. default is empty</param>
+        /// <returns>A SessionsOptions() object configured for execution with Stvm</returns>
+        public static SessionOptions MakeSessionOptionWithStvmProvider(String settings = "")
         {
-            NativeApiStatus.VerifySuccess(NativeMethods.OrtSessionOptionsAppendExecutionProvider_Stvm(_nativePtr, backendType));
+            SessionOptions options = new SessionOptions();
+
+            var settingsPinned = GCHandle.Alloc(NativeOnnxValueHelper.StringToZeroTerminatedUtf8(settings), GCHandleType.Pinned);
+            using (var pinnedSettingsName = new PinnedGCHandle(settingsPinned))
+            {
+                NativeApiStatus.VerifySuccess(NativeMethods.OrtSessionOptionsAppendExecutionProvider_Stvm(options.Handle, pinnedSettingsName.Pointer));
+            }
+
+            return options;
         }
-        
 
         #endregion
 
@@ -193,6 +203,18 @@ namespace Microsoft.ML.OnnxRuntime
             using (var pinnedSettingsName = new PinnedGCHandle(settingsPinned))
             {
                 NativeApiStatus.VerifySuccess(NativeMethods.OrtSessionOptionsAppendExecutionProvider_Nuphar(handle, 1, pinnedSettingsName.Pointer));
+            }
+        }
+
+        /// <summary>
+        /// Use only if you have the onnxruntime package specific to this Execution Provider.
+        /// </summary>
+        public void AppendExecutionProvider_Stvm(string settings = "")
+        {
+            var settingsPinned = GCHandle.Alloc(NativeOnnxValueHelper.StringToZeroTerminatedUtf8(settings), GCHandleType.Pinned);
+            using (var pinnedSettingsName = new PinnedGCHandle(settingsPinned))
+            {
+                NativeApiStatus.VerifySuccess(NativeMethods.OrtSessionOptionsAppendExecutionProvider_Stvm(_nativePtr, pinnedSettingsName.Pointer));
             }
         }
         #endregion //ExecutionProviderAppends
