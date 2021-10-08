@@ -26,8 +26,11 @@ struct StvmFuncState {
   OrtMutex* stvm_mu_ptr = nullptr;
 };
 
+class STVMCompiler;
+
 // Logical device representation.
 class StvmExecutionProvider : public IExecutionProvider {
+  friend STVMCompiler;
  public:
   explicit StvmExecutionProvider(const StvmExecutionProviderInfo& info);
   virtual ~StvmExecutionProvider();

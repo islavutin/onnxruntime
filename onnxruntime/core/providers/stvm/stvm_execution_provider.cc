@@ -20,6 +20,33 @@ using namespace ONNX_NAMESPACE;
 
 namespace onnxruntime {
 
+class STVMCompiler {
+  public:
+    STVMCompiler() = delete;
+    ~STVMCompiler() = default;
+
+    STVMCompiler(StvmExecutionProvider* ep,
+                 const std::string& string_buf) :
+      ep_(ep),
+      buffer_(string_buf) {}
+
+    tvm::runtime::Module* operator()(std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes) {
+      if (ep_->modules_.count(func_name)) {
+        return ep_->modules_[func_name].get();
+      }
+
+      tvm::runtime::Module mod_f = stvm::TVMCompile(buffer_, ep_->info_.target, ep_->info_.target_host, ep_->info_.opt_level, input_shapes);
+      auto module_ptr = std::make_shared<tvm::runtime::Module>();
+      *module_ptr = mod_f;
+      ep_->modules_[func_name] = module_ptr;
+      return ep_->modules_[func_name].get();
+    }
+
+  private:
+    StvmExecutionProvider* ep_;
+    std::string buffer_;
+};
+
 struct STVMFuncState {
   AllocateFunc allocate_func = nullptr;
   DestroyFunc release_func = nullptr;
@@ -157,17 +184,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
 
     const std::string func_name = fused_node->Name();
 
-    auto compiler = [this, model_proto, string_buf](std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes) -> tvm::runtime::Module* {
-      if (modules_.count(func_name)) {
-        return modules_[func_name].get();
-      }
-
-      tvm::runtime::Module mod_f = stvm::TVMCompile(string_buf, info_.target, info_.target_host, info_.opt_level, input_shapes);
-      auto module_ptr = std::make_shared<tvm::runtime::Module>();
-      *module_ptr = mod_f;
-      modules_[func_name] = module_ptr;
-      return modules_[func_name].get();
-    };
+    STVMCompiler compiler = STVMCompiler(this, string_buf);
 
     NodeComputeInfo compute_info;
 
