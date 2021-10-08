@@ -17,15 +17,6 @@ namespace stvm_env_vars {
    static const std::string kDumpSubgraphs = "ORT_STVM_DUMP_SUBGRAPHS";
 }  // namespace stvm_env_vars
 
-// Information to construct kernel function state.
-struct StvmFuncState {
-  AllocateFunc test_allocate_func = nullptr;
-  DestroyFunc test_release_func = nullptr;
-  AllocatorHandle allocator = nullptr;
-  // tvm::runtime::Module* module = nullptr;
-  OrtMutex* stvm_mu_ptr = nullptr;
-};
-
 class STVMCompiler;
 
 // Logical device representation.

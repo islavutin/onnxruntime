@@ -20,6 +20,15 @@ using namespace ONNX_NAMESPACE;
 
 namespace onnxruntime {
 
+// Information to construct kernel function state.
+struct STVMFuncState {
+  AllocateFunc allocate_func = nullptr;
+  DestroyFunc release_func = nullptr;
+  AllocatorHandle allocator = nullptr;
+  tvm::runtime::Module* module = nullptr;
+  std::function<tvm::runtime::Module*(std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes)> compiler = nullptr;
+};
+
 class STVMCompiler {
   public:
     STVMCompiler() = delete;
@@ -47,12 +56,81 @@ class STVMCompiler {
     std::string buffer_;
 };
 
-struct STVMFuncState {
-  AllocateFunc allocate_func = nullptr;
-  DestroyFunc release_func = nullptr;
-  AllocatorHandle allocator = nullptr;
-  tvm::runtime::Module* module = nullptr;
-  std::function<tvm::runtime::Module*(std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes)> compiler = nullptr;
+class STVMComputer {
+  public:
+    STVMComputer() = delete;
+    ~STVMComputer() = default;
+
+    STVMComputer(const std::string& name) :
+      name_(name) {}
+
+    common::Status operator()(FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
+      Ort::CustomOpApi ort{*api};
+      STVMFuncState* tvm_state = reinterpret_cast<STVMFuncState*>(state);
+      std::vector<std::vector<int64_t>> input_shapes;
+      size_t num_inputs = ort.KernelContext_GetInputCount(context);
+      std::vector<DLTensor> dl_tensors_inputs;
+
+      for (auto i = 0u; i < num_inputs; i++) {
+        const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
+        ORT_ENFORCE(input_tensor->IsTensor());
+        const Tensor& tensor = input_tensor->Get<onnxruntime::Tensor>();
+        const OrtDevice& device = tensor.Location().device;
+        auto tensor_info = ort.GetTensorTypeAndShape(input_tensor);
+        auto tensor_type = ort.GetTensorElementType(tensor_info);
+        std::vector<int64_t> input_shape = ort.GetTensorShape(tensor_info);
+        int64_t* shape = new int64_t[input_shape.size()];
+        for(size_t i = 0; i < input_shape.size(); i++) {
+          shape[i] = input_shape[i];
+        }
+        input_shapes.push_back(input_shape);
+        ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
+
+        DLTensor t;
+        t.device = GetDLDevice(device);
+        t.dtype = GetDataType(tensor_type);
+        t.strides = nullptr;
+        t.byte_offset = 0;
+        t.data = const_cast<void*>(ort.GetTensorData<void>(input_tensor));
+        t.ndim = input_shape.size();
+        t.shape = shape;
+        dl_tensors_inputs.push_back(t);
+      }
+
+      size_t num_outputs = ort.KernelContext_GetOutputCount(context);
+      std::vector<DLTensor> dl_tensors_outputs;
+
+      std::vector<std::vector<int64_t>> output_shapes;
+      tvm::runtime::Module* mod = tvm_state->compiler(name_, input_shapes);
+      stvm::TVMExtractOutputShapes(*mod, num_outputs, output_shapes);
+
+      for (auto i = 0u; i < num_outputs; i++) {
+        //setup output tensor property
+        OrtValue* output_tensor = ort.KernelContext_GetOutput(context, i, output_shapes[i].data(), output_shapes[i].size());
+        ORT_ENFORCE(output_tensor->IsTensor());
+        const Tensor& tensor = output_tensor->Get<onnxruntime::Tensor>();
+        const OrtDevice& device = tensor.Location().device;
+        auto tensor_info = ort.GetTensorTypeAndShape(output_tensor);
+        auto tensor_type = ort.GetTensorElementType(tensor_info);
+        ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
+
+        DLTensor t;
+        t.device = GetDLDevice(device);
+        t.dtype = GetDataType(tensor_type);
+        t.strides = nullptr;
+        t.byte_offset = 0;
+        t.data = ort.GetTensorMutableData<void>(output_tensor);
+        t.ndim = output_shapes[i].size();
+        t.shape = output_shapes[i].data();
+        dl_tensors_outputs.push_back(t);
+      }
+      tvm::runtime::TVMRetValue rvalue;
+      stvm::TVMRun(*mod, dl_tensors_inputs, dl_tensors_outputs, &rvalue);
+      return Status::OK();
+    }
+
+  private:
+    std::string name_;
 };
 
 StvmExecutionProvider::StvmExecutionProvider(const StvmExecutionProviderInfo& info)
@@ -200,77 +278,8 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         delete static_cast<STVMFuncState*>(state);
     };
 
-    compute_info.compute_func = [func_name](FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
-      Ort::CustomOpApi ort{*api};
-      STVMFuncState* tvm_state = reinterpret_cast<STVMFuncState*>(state);
-      std::vector<std::vector<int64_t>> input_shapes;
-      size_t num_inputs = ort.KernelContext_GetInputCount(context);
-      std::vector<DLTensor> dl_tensors_inputs;
+    compute_info.compute_func = STVMComputer(func_name);
 
-      for (auto i = 0u; i < num_inputs; i++) {
-        const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
-        ORT_ENFORCE(input_tensor->IsTensor());
-        const Tensor& tensor = input_tensor->Get<onnxruntime::Tensor>();
-        const OrtDevice& device = tensor.Location().device;
-        auto tensor_info = ort.GetTensorTypeAndShape(input_tensor);
-        auto tensor_type = ort.GetTensorElementType(tensor_info);
-        std::vector<int64_t> input_shape = ort.GetTensorShape(tensor_info);
-        int64_t* shape = new int64_t[input_shape.size()];
-        for(size_t i = 0; i < input_shape.size(); i++) {
-          shape[i] = input_shape[i];
-        }
-        input_shapes.push_back(input_shape);
-        ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
-        std::stringstream s;
-        for(auto i : input_shape) {
-          s << i << " ";
-        }
-        LOG(INFO) << s.str();
-
-        DLTensor t;
-        t.device = GetDLDevice(device);
-        t.dtype = GetDataType(tensor_type);
-        t.strides = nullptr;
-        t.byte_offset = 0;
-        t.data = const_cast<void*>(ort.GetTensorData<void>(input_tensor));
-        LOG(INFO) << "alignment: " << reinterpret_cast<size_t>(t.data) % 128 << " " << t.data;
-        t.ndim = input_shape.size();
-        t.shape = shape;
-        dl_tensors_inputs.push_back(t);
-      }
-
-      size_t num_outputs = ort.KernelContext_GetOutputCount(context);
-      std::vector<DLTensor> dl_tensors_outputs;
-
-      std::vector<std::vector<int64_t>> output_shapes;
-      tvm::runtime::Module* mod = tvm_state->compiler(func_name, input_shapes);
-      stvm::TVMExtractOutputShapes(*mod, num_outputs, output_shapes);
-
-      for (auto i = 0u; i < num_outputs; i++) {
-        //setup output tensor property
-        OrtValue* output_tensor = ort.KernelContext_GetOutput(context, i, output_shapes[i].data(), output_shapes[i].size());
-        ORT_ENFORCE(output_tensor->IsTensor());
-        const Tensor& tensor = output_tensor->Get<onnxruntime::Tensor>();
-        const OrtDevice& device = tensor.Location().device;
-        auto tensor_info = ort.GetTensorTypeAndShape(output_tensor);
-        auto tensor_type = ort.GetTensorElementType(tensor_info);
-        ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
-
-        DLTensor t;
-        t.device = GetDLDevice(device);
-        t.dtype = GetDataType(tensor_type);
-        t.strides = nullptr;
-        t.byte_offset = 0;
-        t.data = ort.GetTensorMutableData<void>(output_tensor);
-        LOG(INFO) << "alignment: " << reinterpret_cast<size_t>(t.data) % 128 << " " << t.data;
-        t.ndim = output_shapes[i].size();
-        t.shape = output_shapes[i].data();
-        dl_tensors_outputs.push_back(t);
-      }
-      tvm::runtime::TVMRetValue rvalue;
-      stvm::TVMRun(*mod, dl_tensors_inputs, dl_tensors_outputs, &rvalue);
-      return Status::OK();
-    };
     node_compute_funcs.push_back(compute_info);
   }
   return Status::OK();
