@@ -3,16 +3,12 @@
 
 #include <fstream>
 
-#include "core/graph/onnx_protobuf.h"
 #include "core/framework/execution_provider.h"
-#include "core/framework/op_kernel.h"
 #include "core/framework/kernel_registry.h"
 #include "core/framework/compute_capability.h"
-#include "core/framework/allocatormgr.h"
 #include "core/platform/env.h"
-#include "core/common/status.h"
-#include "onnx/shape_inference/implementation.h"
 #include "core/graph/model.h"
+#include "core/common/cpuid_info.h"
 
 #include "stvm_execution_provider.h"
 #include "xpu_data_transfer.h"
@@ -35,9 +31,8 @@ struct STVMFuncState {
 StvmExecutionProvider::StvmExecutionProvider(const StvmExecutionProviderInfo& info)
     : IExecutionProvider{onnxruntime::kStvmExecutionProvider},
       info_{info} {
-  // TODO(vvchernov): extend supported targets
-  CHECK_EQ(info.target, std::string("llvm")) << "Only cpu allocator supported";
-  CHECK_EQ(info.target_host, std::string("llvm")) << "Only cpu allocator supported";
+  ProcessInfo();
+
   AllocatorCreationInfo default_memory_info = {[](int) {
                                                  return onnxruntime::make_unique<STVMAllocator>();
                                                },
@@ -264,7 +259,6 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
   return Status::OK();
 }
 
-
 std::unique_ptr<onnxruntime::IDataTransfer> StvmExecutionProvider::GetDataTransfer() const {
   //TODO(vvchernov): target or target host?
   if (info_.target.find("vulkan") != std::string::npos) {
@@ -275,6 +269,66 @@ std::unique_ptr<onnxruntime::IDataTransfer> StvmExecutionProvider::GetDataTransf
   } else {
     ORT_NOT_IMPLEMENTED("STVM GetDataTransfer");
   }
+}
+
+void StvmExecutionProvider::ProcessInfo() {
+  if(info_.target == cpu_target_str ||
+     info_.target == llvm_target_str) {
+    ProcessCPUTarget();
+  } else if(info_.target == gpu_target_str) {
+    ProcessGPUTarget();
+  } else if(info_.target.empty()) {
+    ORT_NOT_IMPLEMENTED("target option is empty!");
+  } else {
+    // TODO(vvchernov): extend mechanism of auto-definition of target
+    // target is gotten from option set up by client
+  }
+
+  if((info_.target_host == cpu_target_str ||
+      info_.target_host == llvm_target_str) &&
+      info_.target_host != info_.target) {
+    info_.target_host = info_.target;
+  } else if (info_.target_host.empty()) {
+    info_.target_host = info_.target;
+  } else {
+    // TODO(vvchernov): extend mechanism of auto-definition of target host
+    // target host is gotten from option set up by client
+  }
+
+  if(info_.opt_level < 1) {
+    info_.opt_level = default_opt_level;
+  }
+
+  PrintInfo();
+}
+
+void StvmExecutionProvider::ProcessCPUTarget() {
+  const auto& cpu_id_info = CPUIDInfo::GetCPUIDInfo();
+  // auto detect from CPU ID
+  if (cpu_id_info.HasAVX512Skylake()) {
+    info_.target = stvm_cpu_targets::LLVM_TARGET_SKYLAKE_AVX512;
+  } else if (cpu_id_info.HasAVX512f()) {
+    info_.target = stvm_cpu_targets::LLVM_TARGET_AVX512;
+  } else if (cpu_id_info.HasAVX2()) {
+    info_.target = stvm_cpu_targets::LLVM_TARGET_AVX2;
+  } else if (cpu_id_info.HasAVX()) {
+    info_.target = stvm_cpu_targets::LLVM_TARGET_AVX;
+  } else  {
+    // TODO(vvchernov): extend mechanism of auto-definition of cpu target
+    info_.target = llvm_target_str;
+  }
+}
+
+void StvmExecutionProvider::ProcessGPUTarget() {
+  ORT_NOT_IMPLEMENTED("GPU target auto-defenition is not implemented now!");
+}
+
+void StvmExecutionProvider::PrintInfo() {
+  std::cout << "STVM ep options:" << std::endl;
+  std::cout << "target: " << info_.target << std::endl;
+  std::cout << "target_host: " << info_.target_host << std::endl;
+  std::cout << "opt level: " << info_.opt_level << std::endl;
+  std::cout << "tuning file path: " << info_.tuning_file_path << std::endl;
 }
 
 }  // namespace onnxruntime

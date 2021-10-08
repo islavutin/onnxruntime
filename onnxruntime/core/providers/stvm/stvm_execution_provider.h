@@ -42,6 +42,11 @@ class StvmExecutionProvider : public IExecutionProvider {
   AllocatorPtr GetAllocator(int id, OrtMemType mem_type) const override;
 
  private:
+  void ProcessInfo();
+  void ProcessCPUTarget();
+  void ProcessGPUTarget();
+  void PrintInfo();
+ private:
   bool dump_subgraphs_ = false;
   OrtMutex stvm_mu_;
   AllocatorPtr allocator_;
