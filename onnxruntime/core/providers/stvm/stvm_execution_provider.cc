@@ -260,15 +260,25 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
 }
 
 std::unique_ptr<onnxruntime::IDataTransfer> StvmExecutionProvider::GetDataTransfer() const {
-  //TODO(vvchernov): target or target host?
-  if (info_.target.find("vulkan") != std::string::npos) {
+  LOG(INFO) << "transferring data";
+  if (GPUTargetCheck()) {
     return onnxruntime::make_unique<onnxruntime::GPUDataTransfer>();
   } else if (info_.target.find("llvm") != std::string::npos) {
-    LOG(INFO) << "transfering data";
     return onnxruntime::make_unique<onnxruntime::CPUDataTransfer>();
   } else {
-    ORT_NOT_IMPLEMENTED("STVM GetDataTransfer");
+    ORT_NOT_IMPLEMENTED("STVM GetDataTransfer is not implemented for target ", info_.target);
   }
+}
+
+bool StvmExecutionProvider::GPUTargetCheck() const {
+  //TODO(vvchernov): target or target host?
+  bool check = (
+    info_.target.find("cuda") != std::string::npos ||
+    info_.target.find("opencl") != std::string::npos ||
+    info_.target.find("metal") != std::string::npos ||
+    info_.target.find("vulkan") != std::string::npos
+  );
+  return check;
 }
 
 void StvmExecutionProvider::ProcessInfo() {
@@ -323,7 +333,7 @@ void StvmExecutionProvider::ProcessGPUTarget() {
   ORT_NOT_IMPLEMENTED("GPU target auto-defenition is not implemented now!");
 }
 
-void StvmExecutionProvider::PrintInfo() {
+void StvmExecutionProvider::PrintInfo() const {
   std::cout << "STVM ep options:" << std::endl;
   std::cout << "target: " << info_.target << std::endl;
   std::cout << "target_host: " << info_.target_host << std::endl;

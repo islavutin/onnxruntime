@@ -42,10 +42,11 @@ class StvmExecutionProvider : public IExecutionProvider {
   AllocatorPtr GetAllocator(int id, OrtMemType mem_type) const override;
 
  private:
+  bool GPUTargetCheck() const;
   void ProcessInfo();
   void ProcessCPUTarget();
   void ProcessGPUTarget();
-  void PrintInfo();
+  void PrintInfo() const;
  private:
   bool dump_subgraphs_ = false;
   OrtMutex stvm_mu_;
