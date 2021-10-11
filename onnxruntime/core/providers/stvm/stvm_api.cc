@@ -42,7 +42,7 @@ void TVMExtractOutputShapes(tvm::runtime::Module& mod, size_t num_outputs, std::
   }
 }
 
-void TVMRun(tvm::runtime::Module& mod, std::vector<DLTensor>& inputs, std::vector<DLTensor>& outputs, tvm::runtime::TVMRetValue *ret)
+void TVMRun(tvm::runtime::Module& mod, std::vector<DLTensor>& inputs, std::vector<DLTensor>& outputs, [[maybe_unused]] tvm::runtime::TVMRetValue *ret)
 {
   // TODO(vvchernov): set_input_zero_copy is more preferable but it does not satisfy alignment conditions.
   //tvm::PackedFunc set_input = mod.GetFunction("set_input_zero_copy", false);
