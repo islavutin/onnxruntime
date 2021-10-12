@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include <chrono>
+
 #include "stvm_api.h"
 
 #include <tvm/runtime/registry.h>
@@ -8,7 +10,11 @@
 
 namespace stvm {
 
-    tvm::runtime::Module TVMCompile(const std::string& onnx_txt, const std::string& target, const std::string& target_host, int opt_level, const std::vector<std::vector<int64_t>>& input_shapes)
+tvm::runtime::Module TVMCompile(const std::string& onnx_txt,
+                                const std::string& target,
+                                const std::string& target_host,
+                                int opt_level,
+                                const std::vector<std::vector<int64_t>>& input_shapes)
 {
   tvm::Array<tvm::Array<tvm::Integer>> shapes;
   for (size_t i = 0; i < input_shapes.size(); i++)
@@ -26,40 +32,55 @@ namespace stvm {
   return mod;
 }
 
-void TVMExtractOutputShapes(tvm::runtime::Module& mod, size_t num_outputs, std::vector<std::vector<int64_t>>& output_shapes)
-{
-  tvm::PackedFunc get_output = mod.GetFunction("get_output", false);
-  for (size_t i = 0; i < num_outputs; i++)
-  {
-    tvm::runtime::NDArray output_array = get_output(i);
-    const auto& shape = output_array.Shape();
-    std::vector<int64_t> oshape;
-    for (const auto& dim : shape)
-    {
-      oshape.push_back(dim);
-    }
-    output_shapes.push_back(oshape);
-  }
-}
-
-void TVMRun(tvm::runtime::Module& mod, std::vector<DLTensor>& inputs, std::vector<DLTensor>& outputs, [[maybe_unused]] tvm::runtime::TVMRetValue *ret)
+void TVMRun(tvm::runtime::Module& mod,
+            std::vector<DLTensor>& inputs,
+            std::vector<DLTensor>& outputs,
+            [[maybe_unused]] tvm::runtime::TVMRetValue *ret)
 {
   // TODO(vvchernov): set_input_zero_copy is more preferable but it does not satisfy alignment conditions.
   //tvm::PackedFunc set_input = mod.GetFunction("set_input_zero_copy", false);
+
+  auto start = std::chrono::system_clock::now();
   tvm::PackedFunc set_input = mod.GetFunction("set_input", false);
+  auto end = std::chrono::system_clock::now();
+  auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  std::cout << "init set_input: " << dur << " ms" << std::endl;
+
+  start = std::chrono::system_clock::now();
   for (size_t i = 0; i < inputs.size(); i++)
   {
     set_input(i, &inputs[i]);
   }
+  end = std::chrono::system_clock::now();
+  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  std::cout << "set inputs: " << dur << " ms" << std::endl;
 
+  start = std::chrono::system_clock::now();
   const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run_with_benchmark");
-  (*run)(mod);
+  end = std::chrono::system_clock::now();
+  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  std::cout << "init tvm_run_with_benchmark: " << dur << " ms" << std::endl;
 
+  start = std::chrono::system_clock::now();
+  (*run)(mod);
+  end = std::chrono::system_clock::now();
+  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  std::cout << "tvm inference run: " << dur << " ms" << std::endl;
+
+  start = std::chrono::system_clock::now();
   tvm::PackedFunc get_output = mod.GetFunction("get_output", false);
+  end = std::chrono::system_clock::now();
+  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  std::cout << "init get_output: " << dur << " ms" << std::endl;
+
+  start = std::chrono::system_clock::now();
   for (size_t i = 0; i < outputs.size(); i++)
   {
     get_output(i, &outputs[i]);
   }
+  end = std::chrono::system_clock::now();
+  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+  std::cout << "get outputs: " << dur << " ms" << std::endl;
 }
 
 }  // namespace stvm

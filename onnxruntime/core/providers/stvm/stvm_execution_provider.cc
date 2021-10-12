@@ -1,9 +1,11 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include <chrono>
 #include <fstream>
 
 #include "core/framework/execution_provider.h"
+#include "core/framework/tensorprotoutils.h"
 #include "core/framework/kernel_registry.h"
 #include "core/framework/compute_capability.h"
 #include "core/platform/env.h"
@@ -58,19 +60,48 @@ class STVMCompiler {
 
 class STVMComputer {
   public:
+    using OutputTensorShape = std::vector<int64_t>;
+    using OutputTensorShapes = std::vector<OutputTensorShape>;
+
     STVMComputer() = delete;
     ~STVMComputer() = default;
 
-    STVMComputer(const std::string& name) :
-      name_(name) {}
+    STVMComputer(const std::string& name, const std::vector<const onnxruntime::NodeArg *>& ort_outputs_info) :
+      name_(name) {
+        size_t num_outputs = ort_outputs_info.size();
+        for (auto i = 0u; i < num_outputs; i++) {
+          TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(*ort_outputs_info[i]->Shape());
+          int dims = ort_shape.NumDimensions();
+
+          OutputTensorShape oshape(dims);
+          for (int j = 0; j < dims; ++j) {
+            oshape[j] = int64_t(ort_shape[j]);
+          }
+          shapes_.emplace_back(oshape);
+
+          DLTensor t;
+          // Data pointer and type are defined during inference
+          t.strides = nullptr;
+          t.byte_offset = 0;
+          t.data = nullptr;
+          t.ndim = dims;
+          t.shape = shapes_[i].data();
+          tensors_outputs_.push_back(t);
+        }
+      }
 
     common::Status operator()(FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
+      auto start = std::chrono::system_clock::now();
       Ort::CustomOpApi ort{*api};
       STVMFuncState* tvm_state = reinterpret_cast<STVMFuncState*>(state);
       std::vector<std::vector<int64_t>> input_shapes;
       size_t num_inputs = ort.KernelContext_GetInputCount(context);
+      auto end = std::chrono::system_clock::now();
+      auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      std::cout << "Preparation from custom api: " << dur << " ms" << std::endl; 
       std::vector<DLTensor> dl_tensors_inputs;
 
+      start = std::chrono::system_clock::now();
       for (auto i = 0u; i < num_inputs; i++) {
         const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
         ORT_ENFORCE(input_tensor->IsTensor());
@@ -96,17 +127,23 @@ class STVMComputer {
         t.shape = shape;
         dl_tensors_inputs.push_back(t);
       }
+      end = std::chrono::system_clock::now();
+      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      std::cout << "Preparation of inputs: " << dur << " ms" << std::endl;
 
-      size_t num_outputs = ort.KernelContext_GetOutputCount(context);
-      std::vector<DLTensor> dl_tensors_outputs;
+      start = std::chrono::system_clock::now();
+      tvm::runtime::Module* mod = tvm_state->compiler(name_, input_shapes);
+      end = std::chrono::system_clock::now();
+      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      std::cout << "Get tvm module: " << dur << " ms" << std::endl;
 
       std::vector<std::vector<int64_t>> output_shapes;
-      tvm::runtime::Module* mod = tvm_state->compiler(name_, input_shapes);
-      stvm::TVMExtractOutputShapes(*mod, num_outputs, output_shapes);
+      size_t num_outputs = tensors_outputs_.size();
 
+      start = std::chrono::system_clock::now();
       for (auto i = 0u; i < num_outputs; i++) {
         //setup output tensor property
-        OrtValue* output_tensor = ort.KernelContext_GetOutput(context, i, output_shapes[i].data(), output_shapes[i].size());
+        OrtValue* output_tensor = ort.KernelContext_GetOutput(context, i, shapes_[i].data(), shapes_[i].size());
         ORT_ENFORCE(output_tensor->IsTensor());
         const Tensor& tensor = output_tensor->Get<onnxruntime::Tensor>();
         const OrtDevice& device = tensor.Location().device;
@@ -114,23 +151,27 @@ class STVMComputer {
         auto tensor_type = ort.GetTensorElementType(tensor_info);
         ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
 
-        DLTensor t;
-        t.device = GetDLDevice(device);
-        t.dtype = GetDataType(tensor_type);
-        t.strides = nullptr;
-        t.byte_offset = 0;
-        t.data = ort.GetTensorMutableData<void>(output_tensor);
-        t.ndim = output_shapes[i].size();
-        t.shape = output_shapes[i].data();
-        dl_tensors_outputs.push_back(t);
+        tensors_outputs_[i].device = GetDLDevice(device);
+        tensors_outputs_[i].dtype = GetDataType(tensor_type);
+        tensors_outputs_[i].data = ort.GetTensorMutableData<void>(output_tensor);
       }
+      end = std::chrono::system_clock::now();
+      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      std::cout << "Get input shapes from tvm: " << dur << " ms" << std::endl;
+
+      start = std::chrono::system_clock::now();
       tvm::runtime::TVMRetValue rvalue;
-      stvm::TVMRun(*mod, dl_tensors_inputs, dl_tensors_outputs, &rvalue);
+      stvm::TVMRun(*mod, dl_tensors_inputs, tensors_outputs_, &rvalue);
+      end = std::chrono::system_clock::now();
+      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      std::cout << "tvm inference: " << dur << " ms" << std::endl;
       return Status::OK();
     }
 
   private:
     std::string name_;
+    OutputTensorShapes shapes_;
+    std::vector<DLTensor> tensors_outputs_;
 };
 
 StvmExecutionProvider::StvmExecutionProvider(const StvmExecutionProviderInfo& info)
@@ -278,7 +319,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         delete static_cast<STVMFuncState*>(state);
     };
 
-    compute_info.compute_func = STVMComputer(func_name);
+    compute_info.compute_func = STVMComputer(func_name, node_graph.GetOutputs());
 
     node_compute_funcs.push_back(compute_info);
   }
