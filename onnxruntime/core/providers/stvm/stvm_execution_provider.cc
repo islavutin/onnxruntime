@@ -58,26 +58,51 @@ class STVMCompiler {
     std::string buffer_;
 };
 
-class STVMComputer {
+class STVMRunner {
   public:
-    using OutputTensorShape = std::vector<int64_t>;
-    using OutputTensorShapes = std::vector<OutputTensorShape>;
+    using TVMTensorShape = std::vector<int64_t>;
+    using TVMTensorShapes = std::vector<TVMTensorShape>;
 
-    STVMComputer() = delete;
-    ~STVMComputer() = default;
+    STVMRunner() = delete;
+    ~STVMRunner() = default;
 
-    STVMComputer(const std::string& name, const std::vector<const onnxruntime::NodeArg *>& ort_outputs_info) :
-      name_(name) {
+    STVMRunner(StvmExecutionProvider* ep,
+               const std::string& name,
+               const std::vector<const onnxruntime::NodeArg *>& ort_inputs_info,
+               const std::vector<const onnxruntime::NodeArg *>& ort_outputs_info) {
+        // Extract input shapes
+        TVMTensorShapes input_shapes;
+        size_t num_inputs = ort_inputs_info.size();
+        for (auto i = 0u; i < num_inputs; i++) {
+          TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(*ort_inputs_info[i]->Shape());
+          int dims = ort_shape.NumDimensions();
+
+          TVMTensorShape ishape(dims);
+          for (int j = 0; j < dims; ++j) {
+            ishape[j] = int64_t(ort_shape[j]);
+          }
+          input_shapes.emplace_back(ishape);
+        }
+
+        // Get module from tvm
+        auto start = std::chrono::system_clock::now();
+        auto& compiler = *(ep->compiler_.get());
+        mod_ = compiler(name, input_shapes);
+        auto end = std::chrono::system_clock::now();
+        auto dur = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
+        std::cout << "Get tvm module: " << dur << " s" << std::endl;
+
+        // Prepare draft for output tvm tensors
         size_t num_outputs = ort_outputs_info.size();
         for (auto i = 0u; i < num_outputs; i++) {
           TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(*ort_outputs_info[i]->Shape());
           int dims = ort_shape.NumDimensions();
 
-          OutputTensorShape oshape(dims);
+          TVMTensorShape oshape(dims);
           for (int j = 0; j < dims; ++j) {
             oshape[j] = int64_t(ort_shape[j]);
           }
-          shapes_.emplace_back(oshape);
+          output_shapes_.emplace_back(oshape);
 
           DLTensor t;
           // Data pointer and type are defined during inference
@@ -85,7 +110,7 @@ class STVMComputer {
           t.byte_offset = 0;
           t.data = nullptr;
           t.ndim = dims;
-          t.shape = shapes_[i].data();
+          t.shape = output_shapes_[i].data();
           tensors_outputs_.push_back(t);
         }
       }
@@ -93,7 +118,6 @@ class STVMComputer {
     common::Status operator()(FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
       auto start = std::chrono::system_clock::now();
       Ort::CustomOpApi ort{*api};
-      STVMFuncState* tvm_state = reinterpret_cast<STVMFuncState*>(state);
       std::vector<std::vector<int64_t>> input_shapes;
       size_t num_inputs = ort.KernelContext_GetInputCount(context);
       auto end = std::chrono::system_clock::now();
@@ -131,19 +155,13 @@ class STVMComputer {
       dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
       std::cout << "Preparation of inputs: " << dur << " ms" << std::endl;
 
-      start = std::chrono::system_clock::now();
-      tvm::runtime::Module* mod = tvm_state->compiler(name_, input_shapes);
-      end = std::chrono::system_clock::now();
-      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      std::cout << "Get tvm module: " << dur << " ms" << std::endl;
-
       std::vector<std::vector<int64_t>> output_shapes;
       size_t num_outputs = tensors_outputs_.size();
 
       start = std::chrono::system_clock::now();
       for (auto i = 0u; i < num_outputs; i++) {
         //setup output tensor property
-        OrtValue* output_tensor = ort.KernelContext_GetOutput(context, i, shapes_[i].data(), shapes_[i].size());
+        OrtValue* output_tensor = ort.KernelContext_GetOutput(context, i, output_shapes_[i].data(), output_shapes_[i].size());
         ORT_ENFORCE(output_tensor->IsTensor());
         const Tensor& tensor = output_tensor->Get<onnxruntime::Tensor>();
         const OrtDevice& device = tensor.Location().device;
@@ -161,7 +179,7 @@ class STVMComputer {
 
       start = std::chrono::system_clock::now();
       tvm::runtime::TVMRetValue rvalue;
-      stvm::TVMRun(*mod, dl_tensors_inputs, tensors_outputs_, &rvalue);
+      stvm::TVMRun(*mod_, dl_tensors_inputs, tensors_outputs_, &rvalue);
       end = std::chrono::system_clock::now();
       dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
       std::cout << "tvm inference: " << dur << " ms" << std::endl;
@@ -169,8 +187,8 @@ class STVMComputer {
     }
 
   private:
-    std::string name_;
-    OutputTensorShapes shapes_;
+    tvm::runtime::Module* mod_;
+    TVMTensorShapes output_shapes_;
     std::vector<DLTensor> tensors_outputs_;
 };
 
@@ -303,13 +321,13 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
 
     const std::string func_name = fused_node->Name();
 
-    STVMCompiler compiler = STVMCompiler(this, string_buf);
+    compiler_ = std::make_shared<STVMCompiler>(this, string_buf);
 
     NodeComputeInfo compute_info;
 
-    compute_info.create_state_func = [compiler](ComputeContext* context, FunctionState* state) {
+    compute_info.create_state_func = [this](ComputeContext* context, FunctionState* state) {
       auto* p = new STVMFuncState();
-      *p = {context->allocate_func, context->release_func, context->allocator_handle, nullptr, compiler};
+      *p = {context->allocate_func, context->release_func, context->allocator_handle, nullptr, *compiler_.get()};
       *state = p;
       return 0;
     };
@@ -319,7 +337,8 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         delete static_cast<STVMFuncState*>(state);
     };
 
-    compute_info.compute_func = STVMComputer(func_name, node_graph.GetOutputs());
+    runner_ = std::make_shared<STVMRunner>(this, func_name, node_graph.GetInputs(), node_graph.GetOutputs());
+    compute_info.compute_func = *runner_.get();
 
     node_compute_funcs.push_back(compute_info);
   }

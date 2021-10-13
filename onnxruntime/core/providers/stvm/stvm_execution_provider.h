@@ -4,6 +4,8 @@
 #ifndef STVM_EXECUTION_PROVIDER_H
 #define STVM_EXECUTION_PROVIDER_H
 
+#include <memory>
+
 #include "core/common/logging/logging.h"
 #include "core/framework/execution_provider.h"
 #include "core/providers/stvm/stvm_execution_provider_info.h"
@@ -18,10 +20,12 @@ namespace stvm_env_vars {
 }  // namespace stvm_env_vars
 
 class STVMCompiler;
+class STVMRunner;
 
 // Logical device representation.
 class StvmExecutionProvider : public IExecutionProvider {
   friend STVMCompiler;
+  friend STVMRunner;
  public:
   explicit StvmExecutionProvider(const StvmExecutionProviderInfo& info);
   virtual ~StvmExecutionProvider();
@@ -42,6 +46,8 @@ class StvmExecutionProvider : public IExecutionProvider {
   void ProcessGPUTarget();
   void PrintInfo() const;
  private:
+  std::shared_ptr<STVMCompiler> compiler_;
+  std::shared_ptr<STVMRunner> runner_;
   bool dump_subgraphs_ = false;
   OrtMutex stvm_mu_;
   AllocatorPtr allocator_;
