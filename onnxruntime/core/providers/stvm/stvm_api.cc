@@ -56,10 +56,10 @@ void TVMRun(tvm::runtime::Module& mod,
   std::cout << "set inputs: " << dur << " ms" << std::endl;
 
   start = std::chrono::system_clock::now();
-  const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run_with_benchmark");
+  const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run");
   end = std::chrono::system_clock::now();
   dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "init tvm_run_with_benchmark: " << dur << " ms" << std::endl;
+  std::cout << "init tvm_run: " << dur << " ms" << std::endl;
 
   start = std::chrono::system_clock::now();
   (*run)(mod);

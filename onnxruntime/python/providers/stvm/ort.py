@@ -27,6 +27,11 @@ def run_with_benchmark(mod):
     else:
         benchmark("Baseline")
 
+@tvm.register_func("tvm_run")
+def run_without_benchmark(mod):
+    run = mod.get_function('run')
+    run()
+
 @tvm.register_func("tvm_onnx_import_and_compile")
 def onnx_compile(model_string, target, target_host, opt_level, input_shapes):
     model = onnx.load_model_from_string(bytes(model_string))
@@ -60,5 +65,4 @@ def onnx_compile(model_string, target, target_host, opt_level, input_shapes):
     print(lib.graph_json)
     ctx = tvm.device(target, 0)
     m = tvm.contrib.graph_executor.GraphModule(lib["default"](ctx))
-    # m.set_input(**params)
     return m.module
