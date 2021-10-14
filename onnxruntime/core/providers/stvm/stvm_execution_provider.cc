@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <unordered_map>
 
 #include "core/framework/execution_provider.h"
 #include "core/framework/tensorprotoutils.h"
@@ -37,16 +38,18 @@ class STVMCompiler {
     ~STVMCompiler() = default;
 
     STVMCompiler(StvmExecutionProvider* ep,
-                 const std::string& string_buf) :
+                 const std::string& string_buf,
+                 int opset = 11) :
       ep_(ep),
-      buffer_(string_buf) {}
+      buffer_(string_buf),
+      opset_(opset) {}
 
     tvm::runtime::Module* operator()(std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes) {
       if (ep_->modules_.count(func_name)) {
         return ep_->modules_[func_name].get();
       }
 
-      tvm::runtime::Module mod_f = stvm::TVMCompile(buffer_, ep_->info_.target, ep_->info_.target_host, ep_->info_.opt_level, input_shapes);
+      tvm::runtime::Module mod_f = stvm::TVMCompile(buffer_, ep_->info_.target, ep_->info_.target_host, ep_->info_.opt_level, opset_, ep_->info_.freeze_weights, input_shapes);
       auto module_ptr = std::make_shared<tvm::runtime::Module>();
       *module_ptr = mod_f;
       ep_->modules_[func_name] = module_ptr;
@@ -56,32 +59,40 @@ class STVMCompiler {
   private:
     StvmExecutionProvider* ep_;
     std::string buffer_;
+    int opset_;
 };
 
 class STVMRunner {
   public:
     using TVMTensorShape = std::vector<int64_t>;
     using TVMTensorShapes = std::vector<TVMTensorShape>;
+    using InputsInfoMap = std::unordered_map<size_t, TVMTensorShape>;
+    using ORTGraphNodes = std::vector<const NodeArg*>;
 
     STVMRunner() = delete;
     ~STVMRunner() = default;
 
     STVMRunner(StvmExecutionProvider* ep,
                const std::string& name,
-               const std::vector<const onnxruntime::NodeArg *>& ort_inputs_info,
-               const std::vector<const onnxruntime::NodeArg *>& ort_outputs_info) {
+               const onnxruntime::Graph& graph) {
         // Extract input shapes
+        const ORTGraphNodes& all_nodes = graph.GetInputsIncludingInitializers();
         TVMTensorShapes input_shapes;
-        size_t num_inputs = ort_inputs_info.size();
-        for (auto i = 0u; i < num_inputs; i++) {
-          TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(*ort_inputs_info[i]->Shape());
-          int dims = ort_shape.NumDimensions();
+        size_t indx = 0;
+        for (const auto* node : all_nodes) {
+          const auto& name = node->Name();
+          if(!graph.IsInitializedTensor(name)) {
+            TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(*node->Shape());
+            int dims = ort_shape.NumDimensions();
 
-          TVMTensorShape ishape(dims);
-          for (int j = 0; j < dims; ++j) {
-            ishape[j] = int64_t(ort_shape[j]);
+            TVMTensorShape ishape(dims);
+            for (int j = 0; j < dims; ++j) {
+              ishape[j] = int64_t(ort_shape[j]);
+            }
+            inputs_info_[indx] = ishape;
+            input_shapes.emplace_back(ishape);
           }
-          input_shapes.emplace_back(ishape);
+          ++indx;
         }
 
         // Get module from tvm
@@ -93,6 +104,7 @@ class STVMRunner {
         std::cout << "Get tvm module: " << dur << " s" << std::endl;
 
         // Prepare draft for output tvm tensors
+        const ORTGraphNodes& ort_outputs_info = graph.GetOutputs();
         size_t num_outputs = ort_outputs_info.size();
         for (auto i = 0u; i < num_outputs; i++) {
           TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(*ort_outputs_info[i]->Shape());
@@ -118,7 +130,6 @@ class STVMRunner {
     common::Status operator()(FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
       auto start = std::chrono::system_clock::now();
       Ort::CustomOpApi ort{*api};
-      std::vector<std::vector<int64_t>> input_shapes;
       size_t num_inputs = ort.KernelContext_GetInputCount(context);
       auto end = std::chrono::system_clock::now();
       auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -127,29 +138,25 @@ class STVMRunner {
 
       start = std::chrono::system_clock::now();
       for (auto i = 0u; i < num_inputs; i++) {
-        const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
-        ORT_ENFORCE(input_tensor->IsTensor());
-        const Tensor& tensor = input_tensor->Get<onnxruntime::Tensor>();
-        const OrtDevice& device = tensor.Location().device;
-        auto tensor_info = ort.GetTensorTypeAndShape(input_tensor);
-        auto tensor_type = ort.GetTensorElementType(tensor_info);
-        std::vector<int64_t> input_shape = ort.GetTensorShape(tensor_info);
-        int64_t* shape = new int64_t[input_shape.size()];
-        for(size_t i = 0; i < input_shape.size(); i++) {
-          shape[i] = input_shape[i];
-        }
-        input_shapes.push_back(input_shape);
-        ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
+        if (inputs_info_.count(i)) {
+              const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
+              ORT_ENFORCE(input_tensor->IsTensor());
+              const Tensor& tensor = input_tensor->Get<onnxruntime::Tensor>();
+              const OrtDevice& device = tensor.Location().device;
+              auto tensor_info = ort.GetTensorTypeAndShape(input_tensor);
+              auto tensor_type = ort.GetTensorElementType(tensor_info);
+              ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
 
-        DLTensor t;
-        t.device = GetDLDevice(device);
-        t.dtype = GetDataType(tensor_type);
-        t.strides = nullptr;
-        t.byte_offset = 0;
-        t.data = const_cast<void*>(ort.GetTensorData<void>(input_tensor));
-        t.ndim = input_shape.size();
-        t.shape = shape;
-        dl_tensors_inputs.push_back(t);
+              DLTensor t;
+              t.device = GetDLDevice(device);
+              t.dtype = GetDataType(tensor_type);
+              t.strides = nullptr;
+              t.byte_offset = 0;
+              t.data = const_cast<void*>(ort.GetTensorData<void>(input_tensor));
+              t.ndim = inputs_info_[i].size();
+              t.shape = inputs_info_[i].data();
+              dl_tensors_inputs.push_back(t);
+        }
       }
       end = std::chrono::system_clock::now();
       dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -188,6 +195,7 @@ class STVMRunner {
 
   private:
     tvm::runtime::Module* mod_;
+    InputsInfoMap inputs_info_;
     TVMTensorShapes output_shapes_;
     std::vector<DLTensor> tensors_outputs_;
 };
@@ -337,7 +345,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
         delete static_cast<STVMFuncState*>(state);
     };
 
-    runner_ = std::make_shared<STVMRunner>(this, func_name, node_graph.GetInputs(), node_graph.GetOutputs());
+    runner_ = std::make_shared<STVMRunner>(this, func_name, node_graph);
     compute_info.compute_func = *runner_.get();
 
     node_compute_funcs.push_back(compute_info);

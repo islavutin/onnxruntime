@@ -29,6 +29,7 @@ struct StvmExecutionProviderInfo {
   std::string target{default_target_str};
   std::string target_host{default_target_str};
   uint opt_level{default_opt_level};
+  bool freeze_weights = true;
   std::string tuning_file_path{""};
 
   static StvmExecutionProviderInfo FromProviderOptions(const ProviderOptions& options);

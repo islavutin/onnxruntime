@@ -26,6 +26,10 @@ inline DLDataType GetDataType(ONNXTensorElementDataType type) {
   }
 }
 
+inline DLDataType GetDataTypeFromProto() {
+  return {kDLFloat, 32, 1};
+}
+
 inline DLDevice GetDLDevice(const OrtDevice& device) {
   DLDevice context;
   switch (device.Type()) {

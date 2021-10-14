@@ -33,7 +33,7 @@ def run_without_benchmark(mod):
     run()
 
 @tvm.register_func("tvm_onnx_import_and_compile")
-def onnx_compile(model_string, target, target_host, opt_level, input_shapes):
+def onnx_compile(model_string, target, target_host, opt_level, opset, freeze_params, input_shapes):
     model = onnx.load_model_from_string(bytes(model_string))
 
     # Collect only feed input names from all input names
@@ -50,7 +50,7 @@ def onnx_compile(model_string, target, target_host, opt_level, input_shapes):
     for name in net_feed_input_names:
         feed_shape_dict[name] = shape_dict[name]
 
-    irmod, params = tvm.relay.frontend.from_onnx(model, feed_shape_dict, opset=11)
+    irmod, params = tvm.relay.frontend.from_onnx(model, feed_shape_dict, opset=opset, freeze_params=freeze_params)
     print(irmod)
     # import ipdb; ipdb.set_trace()
     with tvm.relay.build_config(opt_level=opt_level):

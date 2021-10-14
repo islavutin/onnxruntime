@@ -14,6 +14,8 @@ tvm::runtime::Module TVMCompile(const std::string& onnx_txt,
                                 const std::string& target,
                                 const std::string& target_host,
                                 int opt_level,
+                                int opset,
+                                bool freeze_params,
                                 const std::vector<std::vector<int64_t>>& input_shapes)
 {
   tvm::Array<tvm::Array<tvm::Integer>> shapes;
@@ -28,8 +30,18 @@ tvm::runtime::Module TVMCompile(const std::string& onnx_txt,
   }
 
   const tvm::PackedFunc* compile = tvm::runtime::Registry::Get("tvm_onnx_import_and_compile");
-  tvm::runtime::Module mod = (*compile)(TVMByteArray{onnx_txt.data(), onnx_txt.size()}, target, target_host, opt_level, shapes);
+  tvm::runtime::Module mod = (*compile)(TVMByteArray{onnx_txt.data(), onnx_txt.size()}, target, target_host, opt_level, opset, freeze_params, shapes);
   return mod;
+}
+
+void TVMSetInputs(tvm::runtime::Module& mod,
+                  std::vector<DLTensor>& inputs)
+{
+  tvm::PackedFunc set_input = mod.GetFunction("set_input", false);
+  for (size_t i = 0; i < inputs.size(); i++)
+  {
+    set_input(i, &inputs[i]);
+  }
 }
 
 void TVMRun(tvm::runtime::Module& mod,
@@ -41,25 +53,12 @@ void TVMRun(tvm::runtime::Module& mod,
   //tvm::PackedFunc set_input = mod.GetFunction("set_input_zero_copy", false);
 
   auto start = std::chrono::system_clock::now();
-  tvm::PackedFunc set_input = mod.GetFunction("set_input", false);
+  TVMSetInputs(mod, inputs);
+
+  const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run");
   auto end = std::chrono::system_clock::now();
   auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "init set_input: " << dur << " ms" << std::endl;
-
-  start = std::chrono::system_clock::now();
-  for (size_t i = 0; i < inputs.size(); i++)
-  {
-    set_input(i, &inputs[i]);
-  }
-  end = std::chrono::system_clock::now();
-  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "set inputs: " << dur << " ms" << std::endl;
-
-  start = std::chrono::system_clock::now();
-  const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run");
-  end = std::chrono::system_clock::now();
-  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "init tvm_run: " << dur << " ms" << std::endl;
+  std::cout << "preprocess tvm_run: " << dur << " ms" << std::endl;
 
   start = std::chrono::system_clock::now();
   (*run)(mod);
