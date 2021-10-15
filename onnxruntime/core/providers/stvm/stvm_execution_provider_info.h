@@ -12,7 +12,7 @@ namespace onnxruntime {
 struct StvmExecutionProviderInfo {
   std::string target{"llvm"};
   std::string target_host{"llvm"};
-  uint opt_level{3};
+  unsigned int opt_level{3};
 
   static StvmExecutionProviderInfo FromProviderOptions(const ProviderOptions& options);
 };
