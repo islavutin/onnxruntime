@@ -128,15 +128,12 @@ class STVMRunner {
       }
 
     common::Status operator()(FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
+      auto full_start = std::chrono::system_clock::now();
       auto start = std::chrono::system_clock::now();
       Ort::CustomOpApi ort{*api};
       size_t num_inputs = ort.KernelContext_GetInputCount(context);
-      auto end = std::chrono::system_clock::now();
-      auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      std::cout << "Preparation from custom api: " << dur << " ms" << std::endl; 
-      std::vector<DLTensor> dl_tensors_inputs;
 
-      start = std::chrono::system_clock::now();
+      std::vector<DLTensor> dl_tensors_inputs;
       for (auto i = 0u; i < num_inputs; i++) {
         if (inputs_info_.count(i)) {
               const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
@@ -158,14 +155,9 @@ class STVMRunner {
               dl_tensors_inputs.push_back(t);
         }
       }
-      end = std::chrono::system_clock::now();
-      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      std::cout << "Preparation of inputs: " << dur << " ms" << std::endl;
 
       std::vector<std::vector<int64_t>> output_shapes;
       size_t num_outputs = tensors_outputs_.size();
-
-      start = std::chrono::system_clock::now();
       for (auto i = 0u; i < num_outputs; i++) {
         //setup output tensor property
         OrtValue* output_tensor = ort.KernelContext_GetOutput(context, i, output_shapes_[i].data(), output_shapes_[i].size());
@@ -180,16 +172,20 @@ class STVMRunner {
         tensors_outputs_[i].dtype = GetDataType(tensor_type);
         tensors_outputs_[i].data = ort.GetTensorMutableData<void>(output_tensor);
       }
-      end = std::chrono::system_clock::now();
-      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      std::cout << "Get input shapes from tvm: " << dur << " ms" << std::endl;
+      auto end = std::chrono::system_clock::now();
+      auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+      std::cout << "ORT+TVM preprocess: " << dur << " us" << std::endl;
 
       start = std::chrono::system_clock::now();
       tvm::runtime::TVMRetValue rvalue;
       stvm::TVMRun(*mod_, dl_tensors_inputs, tensors_outputs_, &rvalue);
       end = std::chrono::system_clock::now();
       dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      std::cout << "tvm inference: " << dur << " ms" << std::endl;
+      std::cout << "TVMRun duration: " << dur << " ms" << std::endl;
+
+      end = std::chrono::system_clock::now();
+      dur = std::chrono::duration_cast<std::chrono::microseconds>(end - full_start).count();
+      std::cout << "ORT+TVM full inference: " << float(dur)/1000 << " ms" << std::endl;
       return Status::OK();
     }
 

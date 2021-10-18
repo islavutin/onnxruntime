@@ -57,29 +57,24 @@ void TVMRun(tvm::runtime::Module& mod,
 
   const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run");
   auto end = std::chrono::system_clock::now();
-  auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "preprocess tvm_run: " << dur << " ms" << std::endl;
+  auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+  std::cout << "preprocess tvm_run: " << dur << " us" << std::endl;
 
   start = std::chrono::system_clock::now();
   (*run)(mod);
   end = std::chrono::system_clock::now();
-  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "tvm inference run: " << dur << " ms" << std::endl;
+  dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+  std::cout << "tvm inference run: " << float(dur)/1000 << " ms" << std::endl;
 
   start = std::chrono::system_clock::now();
   tvm::PackedFunc get_output = mod.GetFunction("get_output", false);
-  end = std::chrono::system_clock::now();
-  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "init get_output: " << dur << " ms" << std::endl;
-
-  start = std::chrono::system_clock::now();
   for (size_t i = 0; i < outputs.size(); i++)
   {
     get_output(i, &outputs[i]);
   }
   end = std::chrono::system_clock::now();
-  dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-  std::cout << "get outputs: " << dur << " ms" << std::endl;
+  dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+  std::cout << "postprocess tvm run: " << dur << " us" << std::endl;
 }
 
 }  // namespace stvm
