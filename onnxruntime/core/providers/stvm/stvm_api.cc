@@ -35,35 +35,32 @@ tvm::runtime::Module TVMCompile(const std::string& onnx_txt,
 }
 
 void TVMSetInputs(tvm::runtime::Module& mod,
+                  std::vector<size_t>& inds,
                   std::vector<DLTensor>& inputs)
-{
-  tvm::PackedFunc set_input = mod.GetFunction("set_input", false);
-  for (size_t i = 0; i < inputs.size(); i++)
-  {
-    set_input(i, &inputs[i]);
-  }
-}
-
-void TVMRun(tvm::runtime::Module& mod,
-            std::vector<DLTensor>& inputs,
-            std::vector<DLTensor>& outputs,
-            [[maybe_unused]] tvm::runtime::TVMRetValue *ret)
 {
   // TODO(vvchernov): set_input_zero_copy is more preferable but it does not satisfy alignment conditions.
   //tvm::PackedFunc set_input = mod.GetFunction("set_input_zero_copy", false);
 
   auto start = std::chrono::system_clock::now();
-  TVMSetInputs(mod, inputs);
-
-  const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run");
+  tvm::PackedFunc set_input = mod.GetFunction("set_input", false);
+  for (auto& i : inds)
+  {
+    set_input(i, &inputs[i]);
+  }
   auto end = std::chrono::system_clock::now();
   auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-  std::cout << "preprocess tvm_run: " << dur << " us" << std::endl;
+  std::cout << "set inputs into tvm: " << dur << " us" << std::endl;
+}
 
-  start = std::chrono::system_clock::now();
+void TVMRun(tvm::runtime::Module& mod,
+            std::vector<DLTensor>& outputs,
+            [[maybe_unused]] tvm::runtime::TVMRetValue *ret)
+{
+  auto start = std::chrono::system_clock::now();
+  const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run");
   (*run)(mod);
-  end = std::chrono::system_clock::now();
-  dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+  auto end = std::chrono::system_clock::now();
+  auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
   std::cout << "tvm inference run: " << float(dur)/1000 << " ms" << std::endl;
 
   start = std::chrono::system_clock::now();

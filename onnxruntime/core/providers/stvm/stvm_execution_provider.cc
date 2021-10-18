@@ -3,7 +3,7 @@
 
 #include <chrono>
 #include <fstream>
-#include <unordered_map>
+#include <map>
 
 #include "core/framework/execution_provider.h"
 #include "core/framework/tensorprotoutils.h"
@@ -66,7 +66,7 @@ class STVMRunner {
   public:
     using TVMTensorShape = std::vector<int64_t>;
     using TVMTensorShapes = std::vector<TVMTensorShape>;
-    using InputsInfoMap = std::unordered_map<size_t, TVMTensorShape>;
+    using InputsInfoMap = std::map<size_t, TVMTensorShape>;
     using ORTGraphNodes = std::vector<const NodeArg*>;
 
     STVMRunner() = delete;
@@ -79,20 +79,25 @@ class STVMRunner {
         const ORTGraphNodes& all_nodes = graph.GetInputsIncludingInitializers();
         TVMTensorShapes input_shapes;
         size_t indx = 0;
-        for (const auto* node : all_nodes) {
-          const auto& name = node->Name();
-          if(!graph.IsInitializedTensor(name)) {
-            TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(*node->Shape());
-            int dims = ort_shape.NumDimensions();
-
-            TVMTensorShape ishape(dims);
-            for (int j = 0; j < dims; ++j) {
-              ishape[j] = int64_t(ort_shape[j]);
+        if (ep->info_.freeze_weights) {
+          for (const auto* node : all_nodes) {
+            const auto& node_name = node->Name();
+            if(!graph.IsInitializedTensor(node_name)) {
+              TVMTensorShape ishape;
+              getTensorInfo(*node->Shape(), ishape, indx);
+              input_shapes.emplace_back(ishape);
             }
-            inputs_info_[indx] = ishape;
-            input_shapes.emplace_back(ishape);
+            ++indx;
           }
-          ++indx;
+        } else {
+          for (const auto* node : all_nodes) {
+            const auto& node_name = node->Name();
+            TVMTensorShape ishape;
+            getTensorInfo(*node->Shape(), ishape, indx++);
+            if(!graph.IsInitializedTensor(node_name)) {
+              input_shapes.emplace_back(ishape);
+            }
+          }
         }
 
         // Get module from tvm
@@ -131,30 +136,35 @@ class STVMRunner {
       auto full_start = std::chrono::system_clock::now();
       auto start = std::chrono::system_clock::now();
       Ort::CustomOpApi ort{*api};
-      size_t num_inputs = ort.KernelContext_GetInputCount(context);
 
+      std::vector<size_t> inds;
       std::vector<DLTensor> dl_tensors_inputs;
-      for (auto i = 0u; i < num_inputs; i++) {
-        if (inputs_info_.count(i)) {
-              const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
-              ORT_ENFORCE(input_tensor->IsTensor());
-              const Tensor& tensor = input_tensor->Get<onnxruntime::Tensor>();
-              const OrtDevice& device = tensor.Location().device;
-              auto tensor_info = ort.GetTensorTypeAndShape(input_tensor);
-              auto tensor_type = ort.GetTensorElementType(tensor_info);
-              ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
+      for (auto& info : inputs_info_) {
+        // TODO(vvchernov): decomposition declaration only available with -std=c++1z or -std=gnu++1z
+        auto& i = info.first;
+        auto& shape = info.second;
+        const OrtValue* input_tensor = ort.KernelContext_GetInput(context, i);
+        ORT_ENFORCE(input_tensor->IsTensor());
+        const Tensor& tensor = input_tensor->Get<onnxruntime::Tensor>();
+        const OrtDevice& device = tensor.Location().device;
+        auto tensor_info = ort.GetTensorTypeAndShape(input_tensor);
+        auto tensor_type = ort.GetTensorElementType(tensor_info);
+        std::vector<int64_t> ort_shape = ort.GetTensorShape(tensor_info);
+        ORT_ENFORCE(compare_shapes(shape, ort_shape));
+        ort.ReleaseTensorTypeAndShapeInfo(tensor_info);
 
-              DLTensor t;
-              t.device = GetDLDevice(device);
-              t.dtype = GetDataType(tensor_type);
-              t.strides = nullptr;
-              t.byte_offset = 0;
-              t.data = const_cast<void*>(ort.GetTensorData<void>(input_tensor));
-              t.ndim = inputs_info_[i].size();
-              t.shape = inputs_info_[i].data();
-              dl_tensors_inputs.push_back(t);
-        }
+        DLTensor t;
+        t.device = GetDLDevice(device);
+        t.dtype = GetDataType(tensor_type);
+        t.strides = nullptr;
+        t.byte_offset = 0;
+        t.data = const_cast<void*>(ort.GetTensorData<void>(input_tensor));
+        t.ndim = shape.size();
+        t.shape = shape.data();
+        dl_tensors_inputs.push_back(t);
+        inds.push_back(i);
       }
+      stvm::TVMSetInputs(*mod_, inds, dl_tensors_inputs);
 
       std::vector<std::vector<int64_t>> output_shapes;
       size_t num_outputs = tensors_outputs_.size();
@@ -178,7 +188,7 @@ class STVMRunner {
 
       start = std::chrono::system_clock::now();
       tvm::runtime::TVMRetValue rvalue;
-      stvm::TVMRun(*mod_, dl_tensors_inputs, tensors_outputs_, &rvalue);
+      stvm::TVMRun(*mod_, tensors_outputs_, &rvalue);
       end = std::chrono::system_clock::now();
       dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
       std::cout << "TVMRun duration: " << dur << " ms" << std::endl;
@@ -187,6 +197,34 @@ class STVMRunner {
       dur = std::chrono::duration_cast<std::chrono::microseconds>(end - full_start).count();
       std::cout << "ORT+TVM full inference: " << float(dur)/1000 << " ms" << std::endl;
       return Status::OK();
+    }
+  private:
+    void getTensorInfo(const TensorShapeProto& shape_proto,
+                       TVMTensorShape& ishape,
+                       size_t indx) {
+      TensorShape ort_shape = utils::GetTensorShapeFromTensorShapeProto(shape_proto);
+      int dims = ort_shape.NumDimensions();
+
+      ishape.resize(dims);
+      for (int j = 0; j < dims; ++j) {
+        ishape[j] = int64_t(ort_shape[j]);
+      }
+      inputs_info_[indx] = ishape;
+    }
+
+    bool compare_shapes(const TVMTensorShape& shape1, const TVMTensorShape& shape2) {
+      size_t size = shape1.size();
+      if (shape2.size() == size) {
+        for (size_t i = 0; i < size; ++i) {
+          if(shape1[i] != shape2[i]) {
+            return false;
+          }
+        }
+      } else {
+        return false;
+      }
+
+      return true;
     }
 
   private:
@@ -428,6 +466,7 @@ void StvmExecutionProvider::PrintInfo() const {
   std::cout << "target: " << info_.target << std::endl;
   std::cout << "target_host: " << info_.target_host << std::endl;
   std::cout << "opt level: " << info_.opt_level << std::endl;
+  std::cout << "freeze weights: " << info_.freeze_weights << std::endl;
   std::cout << "tuning file path: " << info_.tuning_file_path << std::endl;
 }
 
