@@ -51,7 +51,7 @@ def onnx_compile(model_string, target, target_host, opt_level, opset, freeze_par
         feed_shape_dict[name] = shape_dict[name]
 
     irmod, params = tvm.relay.frontend.from_onnx(model, feed_shape_dict, opset=opset, freeze_params=freeze_params)
-    print(irmod)
+    #print(irmod)
     # import ipdb; ipdb.set_trace()
     with tvm.relay.build_config(opt_level=opt_level):
         tuning_logfile = os.getenv("AUTOTVM_TUNING_LOG")
@@ -62,7 +62,7 @@ def onnx_compile(model_string, target, target_host, opt_level, opset, freeze_par
         else:
             lib = tvm.relay.build(irmod, target_host=target_host, target=target)
 
-    print(lib.graph_json)
+    #print(lib.graph_json)
     ctx = tvm.device(target, 0)
     m = tvm.contrib.graph_executor.GraphModule(lib["default"](ctx))
     return m.module
