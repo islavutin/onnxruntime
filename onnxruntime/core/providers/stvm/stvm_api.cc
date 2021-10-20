@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include <chrono>
-
 #include "stvm_api.h"
 
 #include <tvm/runtime/registry.h>
@@ -41,37 +39,25 @@ void TVMSetInputs(tvm::runtime::Module& mod,
   // TODO(vvchernov): set_input_zero_copy is more preferable but it does not satisfy alignment conditions.
   //tvm::PackedFunc set_input = mod.GetFunction("set_input_zero_copy", false);
 
-  auto start = std::chrono::system_clock::now();
   tvm::PackedFunc set_input = mod.GetFunction("set_input", false);
   for (auto& i : inds)
   {
     set_input(i, &inputs[i]);
   }
-  auto end = std::chrono::system_clock::now();
-  auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-  std::cout << "set inputs into tvm: " << dur << " us" << std::endl;
 }
 
 void TVMRun(tvm::runtime::Module& mod,
             std::vector<DLTensor>& outputs,
             [[maybe_unused]] tvm::runtime::TVMRetValue *ret)
 {
-  auto start = std::chrono::system_clock::now();
   const tvm::PackedFunc* run = tvm::runtime::Registry::Get("tvm_run");
   (*run)(mod);
-  auto end = std::chrono::system_clock::now();
-  auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-  std::cout << "tvm inference run: " << float(dur)/1000 << " ms" << std::endl;
 
-  start = std::chrono::system_clock::now();
   tvm::PackedFunc get_output = mod.GetFunction("get_output", false);
   for (size_t i = 0; i < outputs.size(); i++)
   {
     get_output(i, &outputs[i]);
   }
-  end = std::chrono::system_clock::now();
-  dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-  std::cout << "postprocess tvm run: " << dur << " us" << std::endl;
 }
 
 }  // namespace stvm

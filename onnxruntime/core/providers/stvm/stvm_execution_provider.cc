@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include <chrono>
 #include <fstream>
 #include <map>
 
@@ -101,12 +100,8 @@ class STVMRunner {
         }
 
         // Get module from tvm
-        auto start = std::chrono::system_clock::now();
         auto& compiler = *(ep->compiler_.get());
         mod_ = compiler(name, input_shapes);
-        auto end = std::chrono::system_clock::now();
-        auto dur = std::chrono::duration_cast<std::chrono::seconds>(end - start).count();
-        std::cout << "Get tvm module: " << dur << " s" << std::endl;
 
         // Prepare draft for output tvm tensors
         const ORTGraphNodes& ort_outputs_info = graph.GetOutputs();
@@ -133,8 +128,6 @@ class STVMRunner {
       }
 
     common::Status operator()(FunctionState state, const OrtCustomOpApi* api, OrtKernelContext* context) {
-      auto full_start = std::chrono::system_clock::now();
-      auto start = std::chrono::system_clock::now();
       Ort::CustomOpApi ort{*api};
 
       std::vector<size_t> inds;
@@ -182,20 +175,10 @@ class STVMRunner {
         tensors_outputs_[i].dtype = GetDataType(tensor_type);
         tensors_outputs_[i].data = ort.GetTensorMutableData<void>(output_tensor);
       }
-      auto end = std::chrono::system_clock::now();
-      auto dur = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-      std::cout << "ORT+TVM preprocess: " << dur << " us" << std::endl;
 
-      start = std::chrono::system_clock::now();
       tvm::runtime::TVMRetValue rvalue;
       stvm::TVMRun(*mod_, tensors_outputs_, &rvalue);
-      end = std::chrono::system_clock::now();
-      dur = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      std::cout << "TVMRun duration: " << dur << " ms" << std::endl;
 
-      end = std::chrono::system_clock::now();
-      dur = std::chrono::duration_cast<std::chrono::microseconds>(end - full_start).count();
-      std::cout << "ORT+TVM full inference: " << float(dur)/1000 << " ms" << std::endl;
       return Status::OK();
     }
   private:
