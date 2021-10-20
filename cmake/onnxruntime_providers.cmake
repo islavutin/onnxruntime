@@ -1118,7 +1118,11 @@ if (onnxruntime_USE_STVM)
     ${onnxruntime_STVM_HOME}/3rdparty/dlpack/include
     ${onnxruntime_STVM_HOME}/3rdparty/dmlc-core/include
     ${PYTHON_INLCUDE_DIRS})
-  target_link_libraries(onnxruntime_providers_stvm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/external/tvm_update/build/libtvm.so)
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    target_link_libraries(onnxruntime_providers_stvm PRIVATE ${onnxruntime_STVM_HOME}/build/libtvm.dylib)
+  else()
+    target_link_libraries(onnxruntime_providers_stvm PRIVATE ${onnxruntime_STVM_HOME}/build/libtvm.so)
+  endif()
   set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-rpath,${onnxruntime_STVM_HOME}/build")
 #  target_compile_options(onnxruntime_providers_stvm PRIVATE -Wno-error=sign-compare)
 endif()
