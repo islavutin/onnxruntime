@@ -22,13 +22,13 @@ const std::string LLVM_TARGET_SKYLAKE_AVX512 = "llvm -mcpu=skylake-avx512";
 const std::string LLVM_TARGET_AVX512 = "llvm -mcpu=skylake-avx512";
 }
 
-constexpr const uint default_opt_level = 3;
+constexpr const unsigned int default_opt_level = 3;
 
 // Information needed to construct an TVM execution provider.
 struct StvmExecutionProviderInfo {
   std::string target{default_target_str};
   std::string target_host{default_target_str};
-  uint opt_level{default_opt_level};
+  unsigned int opt_level{default_opt_level};
   bool freeze_weights = true;
   std::string tuning_file_path{""};
 
