@@ -17,7 +17,7 @@ tvm::runtime::Module TVMCompile(const std::string& onnx_txt,
                                 const std::vector<std::vector<int64_t>>& input_shapes)
 {
   tvm::Array<tvm::Array<tvm::Integer>> shapes;
-  for (size_t i = 0; i < input_shapes.size(); i++)
+  for (size_t i = 0; i < input_shapes.size(); ++i)
   {
     tvm::Array<tvm::Integer> shape;
     for (auto& dim : input_shapes[i])
@@ -54,7 +54,7 @@ void TVMRun(tvm::runtime::Module& mod,
   (*run)(mod);
 
   tvm::PackedFunc get_output = mod.GetFunction("get_output", false);
-  for (size_t i = 0; i < outputs.size(); i++)
+  for (size_t i = 0; i < outputs.size(); ++i)
   {
     get_output(i, &outputs[i]);
   }

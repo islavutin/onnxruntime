@@ -38,7 +38,7 @@ class STVMCompiler {
 
     STVMCompiler(StvmExecutionProvider* ep,
                  const std::string& string_buf,
-                 int opset = 11) :
+                 int opset) :
       ep_(ep),
       buffer_(string_buf),
       opset_(opset) {}
@@ -346,7 +346,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
 
     const std::string func_name = fused_node->Name();
 
-    compiler_ = std::make_shared<STVMCompiler>(this, string_buf);
+    compiler_ = std::make_shared<STVMCompiler>(this, string_buf, int(opset->version()));
 
     NodeComputeInfo compute_info;
 
