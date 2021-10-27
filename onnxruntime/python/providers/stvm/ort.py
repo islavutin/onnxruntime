@@ -5,13 +5,14 @@
 # --------------------------------------------------------------------------
 
 import os
-import onnx
-import tvm
-import tvm.relay
-import tvm.autotvm as autotvm
 import timeit
 import numpy as np
 import collections
+
+import onnx
+import tvm
+from tvm import relay, auto_scheduler
+from tvm.contrib import graph_executor
 
 @tvm.register_func("tvm_run_with_benchmark")
 def run_with_benchmark(mod):
@@ -50,19 +51,22 @@ def onnx_compile(model_string, target, target_host, opt_level, opset, freeze_par
     for name in net_feed_input_names:
         feed_shape_dict[name] = shape_dict[name]
 
-    irmod, params = tvm.relay.frontend.from_onnx(model, feed_shape_dict, opset=opset, freeze_params=freeze_params)
+    irmod, params = relay.frontend.from_onnx(model, feed_shape_dict, opset=opset, freeze_params=freeze_params)
     #print(irmod)
     # import ipdb; ipdb.set_trace()
-    with tvm.relay.build_config(opt_level=opt_level):
-        tuning_logfile = os.getenv("AUTOTVM_TUNING_LOG")
-        if tuning_logfile:
-            with autotvm.apply_history_best(tuning_logfile):
-                # XXX: do not pass parameters to relay.build otherwise they will be inline into the module
-                lib = tvm.relay.build(irmod, target_host=target_host, target=target)
-        else:
-            lib = tvm.relay.build(irmod, target_host=target_host, target=target)
+
+    print("Build TVM graph executor")
+    tuning_logfile = os.getenv("AUTOTVM_TUNING_LOG")
+    if tuning_logfile:
+        print("Use tuning file: ", tuning_logfile)
+        with auto_scheduler.ApplyHistoryBest(tuning_logfile):
+            with tvm.transform.PassContext(opt_level=opt_level, config={"relay.backend.use_auto_scheduler": True}):
+                lib = relay.build(irmod, target=target, target_host=target_host)
+    else:
+        with tvm.transform.PassContext(opt_level=opt_level):
+            lib = relay.build(irmod, target=target, target_host=target_host, params=params)
 
     #print(lib.graph_json)
     ctx = tvm.device(target, 0)
-    m = tvm.contrib.graph_executor.GraphModule(lib["default"](ctx))
+    m = graph_executor.GraphModule(lib["default"](ctx))
     return m.module
