@@ -4,7 +4,10 @@
 #ifndef STVM_EXECUTION_PROVIDER_H
 #define STVM_EXECUTION_PROVIDER_H
 
+#include <string>
+#include <vector>
 #include <memory>
+#include <unordered_map>
 
 #include "core/common/logging/logging.h"
 #include "core/framework/execution_provider.h"
@@ -19,13 +22,16 @@ namespace stvm_env_vars {
    static const std::string kDumpSubgraphs = "ORT_STVM_DUMP_SUBGRAPHS";
 }  // namespace stvm_env_vars
 
-class STVMCompiler;
 class STVMRunner;
 
 // Logical device representation.
 class StvmExecutionProvider : public IExecutionProvider {
-  friend STVMCompiler;
   friend STVMRunner;
+
+  using TVMTensorShape = std::vector<int64_t>;
+  using TVMTensorShapes = std::vector<TVMTensorShape>;
+  using STVMRunners = std::unordered_map<std::string, std::shared_ptr<STVMRunner>>;
+  using STVMModules = std::unordered_map<std::string, std::shared_ptr<tvm::runtime::Module>>;
  public:
   explicit StvmExecutionProvider(const StvmExecutionProviderInfo& info);
   virtual ~StvmExecutionProvider();
@@ -45,14 +51,18 @@ class StvmExecutionProvider : public IExecutionProvider {
   void ProcessCPUTarget();
   void ProcessGPUTarget();
   void PrintInfo() const;
+  // Bindings for compute info
+  int CreateStateFunc(ComputeContext*, FunctionState*);
+  tvm::runtime::Module* CompileFunc(std::string func_name, const TVMTensorShapes& input_shapes);
  private:
-  std::shared_ptr<STVMCompiler> compiler_;
-  std::shared_ptr<STVMRunner> runner_;
+  STVMRunners runners_;
+  std::unordered_map<std::string, std::string> buffers_;
+  std::unordered_map<std::string, int> opsets_;
   bool dump_subgraphs_ = false;
   OrtMutex stvm_mu_;
   AllocatorPtr allocator_;
   StvmExecutionProviderInfo info_;
-  std::unordered_map<std::string, std::shared_ptr<tvm::runtime::Module>> modules_;
+  STVMModules modules_;
 };
 
 }  // namespace onnxruntime

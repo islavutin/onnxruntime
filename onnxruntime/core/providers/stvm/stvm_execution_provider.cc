@@ -31,36 +31,6 @@ struct STVMFuncState {
   std::function<tvm::runtime::Module*(std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes)> compiler = nullptr;
 };
 
-class STVMCompiler {
-  public:
-    STVMCompiler() = delete;
-    ~STVMCompiler() = default;
-
-    STVMCompiler(StvmExecutionProvider* ep,
-                 const std::string& string_buf,
-                 int opset) :
-      ep_(ep),
-      buffer_(string_buf),
-      opset_(opset) {}
-
-    tvm::runtime::Module* operator()(std::string func_name, const std::vector<std::vector<int64_t>>& input_shapes) {
-      if (ep_->modules_.count(func_name)) {
-        return ep_->modules_[func_name].get();
-      }
-
-      tvm::runtime::Module mod_f = stvm::TVMCompile(buffer_, ep_->info_.target, ep_->info_.target_host, ep_->info_.opt_level, opset_, ep_->info_.freeze_weights, input_shapes);
-      auto module_ptr = std::make_shared<tvm::runtime::Module>();
-      *module_ptr = mod_f;
-      ep_->modules_[func_name] = module_ptr;
-      return ep_->modules_[func_name].get();
-    }
-
-  private:
-    StvmExecutionProvider* ep_;
-    std::string buffer_;
-    int opset_;
-};
-
 class STVMRunner {
   public:
     using TVMTensorShape = std::vector<int64_t>;
@@ -100,8 +70,7 @@ class STVMRunner {
         }
 
         // Get module from tvm
-        auto& compiler = *(ep->compiler_.get());
-        mod_ = compiler(name, input_shapes);
+        mod_ = ep->CompileFunc(name, input_shapes);
 
         // Prepare draft for output tvm tensors
         const ORTGraphNodes& ort_outputs_info = graph.GetOutputs();
@@ -326,6 +295,7 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
     auto func_body = fused_node->GetFunctionBody();
     if (!func_body)
       return common::Status(common::ONNXRUNTIME, common::INVALID_ARGUMENT, "Function body is empty");
+    const std::string func_name = fused_node->Name();
     const onnxruntime::Graph& node_graph = func_body->Body();
     onnxruntime::Model model(node_graph.Name(), true, ModelMetaData(), PathString(),
                              IOnnxRuntimeOpSchemaRegistryList(), node_graph.DomainToVersionMap(),
@@ -340,30 +310,22 @@ common::Status StvmExecutionProvider::Compile(const std::vector<onnxruntime::Nod
 
     std::string string_buf;
     model_proto.SerializeToString(&string_buf);
+    buffers_[func_name] = string_buf;
+    opsets_[func_name] = int(opset->version());
 
     std::fstream dump("/tmp/" + fused_node->Name() + ".onnx", std::ios::out | std::ios::trunc | std::ios::binary);
     model_proto.SerializeToOstream(&dump);
 
-    const std::string func_name = fused_node->Name();
-
-    compiler_ = std::make_shared<STVMCompiler>(this, string_buf, int(opset->version()));
-
     NodeComputeInfo compute_info;
-
-    compute_info.create_state_func = [this](ComputeContext* context, FunctionState* state) {
-      auto* p = new STVMFuncState();
-      *p = {context->allocate_func, context->release_func, context->allocator_handle, nullptr, *compiler_.get()};
-      *state = p;
-      return 0;
-    };
+    compute_info.create_state_func = std::bind(&StvmExecutionProvider::CreateStateFunc, this, std::placeholders::_1, std::placeholders::_2);
 
     compute_info.release_state_func = [](FunctionState state) {
       if (state)
         delete static_cast<STVMFuncState*>(state);
     };
 
-    runner_ = std::make_shared<STVMRunner>(this, func_name, node_graph);
-    compute_info.compute_func = *runner_.get();
+    runners_[func_name] = std::make_shared<STVMRunner>(this, func_name, node_graph);
+    compute_info.compute_func = *runners_[func_name].get();
 
     node_compute_funcs.push_back(compute_info);
   }
@@ -451,6 +413,38 @@ void StvmExecutionProvider::PrintInfo() const {
   std::cout << "opt level: " << info_.opt_level << std::endl;
   std::cout << "freeze weights: " << info_.freeze_weights << std::endl;
   std::cout << "tuning file path: " << info_.tuning_file_path << std::endl;
+}
+
+int StvmExecutionProvider::CreateStateFunc(ComputeContext* context, FunctionState* state) {
+  auto* state_ptr = new STVMFuncState();
+  *state_ptr = {context->allocate_func,
+                 context->release_func,
+                 context->allocator_handle,
+                 nullptr,
+                 std::bind(&StvmExecutionProvider::CompileFunc, this, std::placeholders::_1, std::placeholders::_2)};
+  *state = state_ptr;
+  return 0;
+}
+
+tvm::runtime::Module* StvmExecutionProvider::CompileFunc(std::string func_name, const TVMTensorShapes& input_shapes) {
+  if (modules_.count(func_name)) {
+    return modules_[func_name].get();
+  }
+
+  tvm::runtime::Module mod_f = stvm::TVMCompile(buffers_[func_name],
+                                                info_.target,
+                                                info_.target_host,
+                                                info_.opt_level,
+                                                opsets_[func_name],
+                                                info_.freeze_weights,
+                                                input_shapes);
+  auto module_ptr = std::make_shared<tvm::runtime::Module>();
+  *module_ptr = mod_f;
+  modules_[func_name] = module_ptr;
+  // Release memory after module generation
+  buffers_.erase(func_name);
+  opsets_.erase(func_name);
+  return modules_[func_name].get();
 }
 
 }  // namespace onnxruntime
