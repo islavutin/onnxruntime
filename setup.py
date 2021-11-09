@@ -361,6 +361,9 @@ if package_name == 'onnxruntime-nuphar':
     packages += ["onnxruntime.nuphar"]
     extra += [path.join('nuphar', 'NUPHAR_CACHE_VERSION')]
 
+if package_name == 'onnxruntime-stvm':
+    packages += ['onnxruntime.providers.stvm']
+
 if featurizers_build:
     # Copy the featurizer data from its current directory into the onnx runtime directory so that the
     # content can be included as module data.
