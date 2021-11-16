@@ -17,6 +17,8 @@ inline DLDataType GetDataType(ONNXTensorElementDataType type) {
     return {kDLFloat, 64, 1};
   } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
     return {kDLFloat, 32, 1};
+  } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    return {kDLFloat, 16, 1};
   } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
     return {kDLInt, 64, 1};
   } else if (type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32) {
