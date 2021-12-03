@@ -203,7 +203,7 @@ StvmExecutionProvider::StvmExecutionProvider(const StvmExecutionProviderInfo& in
 
   const std::string dump_subgraphs_env = env_instance.GetEnvironmentVar(stvm_env_vars::kDumpSubgraphs);
   if (!dump_subgraphs_env.empty()) {
-    dump_subgraphs_ = (std::stoi(dump_subgraphs_env) == 0 ? false : true);
+    dump_subgraphs_ = std::stoi(dump_subgraphs_env) != 0;
   }
 }
 
@@ -220,7 +220,7 @@ StvmExecutionProvider::GetCapability(const GraphViewer& graph_viewer,
   if (graph_viewer.IsSubgraph()) {
     return result;
   }
-#if 1
+
   // Construct modelproto from graph
   Model model(graph_viewer.Name(), true, ModelMetaData(), PathString{}, IOnnxRuntimeOpSchemaRegistryList(), graph_viewer.DomainToVersionMap(), std::vector<ONNX_NAMESPACE::FunctionProto>(), *GetLogger());
   Graph& graph_build = model.MainGraph();
@@ -247,9 +247,6 @@ StvmExecutionProvider::GetCapability(const GraphViewer& graph_viewer,
   ONNX_NAMESPACE::ModelProto model_proto = model.ToProto();
   model_proto.set_ir_version(ONNX_NAMESPACE::Version::IR_VERSION);
   auto status = graph_build.Resolve();
-  std::string onnx_string_buffer;
-  model_proto.SerializeToString(&onnx_string_buffer);
-#endif
 
   std::unordered_set<std::string> required_initializers;
   const std::vector<NodeIndex>& sorted_nodes = graph_viewer.GetNodesInTopologicalOrder();
@@ -312,9 +309,12 @@ common::Status StvmExecutionProvider::Compile(const std::vector<Node*>& nodes,
     model_proto.SerializeToString(&string_buf);
     buffers_[func_name] = string_buf;
     opsets_[func_name] = int(opset->version());
+    model_paths_[func_name] = fused_node->ModelPath().ToPathString();;
 
-    std::fstream dump("/tmp/" + fused_node->Name() + ".onnx", std::ios::out | std::ios::trunc | std::ios::binary);
-    model_proto.SerializeToOstream(&dump);
+    if (dump_subgraphs_) {
+        std::fstream dump("/tmp/" + fused_node->Name() + ".onnx", std::ios::out | std::ios::trunc | std::ios::binary);
+        model_proto.SerializeToOstream(&dump);
+    }
 
     NodeComputeInfo compute_info;
     compute_info.create_state_func = std::bind(&StvmExecutionProvider::CreateStateFunc, this, std::placeholders::_1, std::placeholders::_2);
@@ -431,6 +431,7 @@ tvm::runtime::Module* StvmExecutionProvider::CompileFunc(std::string func_name, 
   }
 
   tvm::runtime::Module mod_f = stvm::TVMCompile(buffers_[func_name],
+                                                model_paths_[func_name],
                                                 info_.target,
                                                 info_.target_host,
                                                 info_.opt_level,
