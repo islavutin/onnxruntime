@@ -11,14 +11,15 @@
 
 
 ## Introduction
-Some description
+STVM is an execution provider in the ONNX Runtime, which is built on top of Apache TVM. It delivers the path to innovations happening in Apache TVM ecosystem to ONNX Runtime customers.
 
 ## Build
-There are two steps to build ONNX runtime with STVM EP. Initially, Apache TVM should be built, and then ONNX runtime .
-Important note is that both TVM and ORT with STVM use Python API, therefore the python packages shoud be reinstall or PYTHONPATH should be updated accordingly for correct work.
+There are two major steps to build ONNX runtime with STVM EP. Firstly, Apache TVM should be built, and then ONNX runtime .
+
+Important note is that both TVM and ORT with STVM use Python API, therefore the python packages shoud be reinstall or PYTHONPATH should be updated accordingly for correct work. See details below:
 
 ### Prerequisites
-Initially TVM and it's dependencies should be installed:<br />
+Initially TVM and required dependencies should be installed:<br />
 
 TVM dependencies installation:<br />
 `apt-get install -y python3 python3-dev python3-pip python3-setuptools gcc libtinfo-dev zlib1g-dev build-essential cmake libedit-dev libxml2-dev llvm`<br />
@@ -36,7 +37,7 @@ Add correct python path to environment for TVM python API:
 export TVM_HOME=<path_to_msft_onnxrt>/onnxruntime/cmake/external/tvm_update
 export PYTHONPATH=$TVM_HOME/python:${PYTHONPATH}
 ```
-More detailed TVM install instructions can be seen [here](https://tvm.apache.org/docs/install/from_source.html)
+More detailed Apache TVM install instructions are located [here](https://tvm.apache.org/docs/install/from_source.html)
 
 ### Build ONNX runtime with STVM Execution Provider
 Build onnxruntime:
@@ -56,7 +57,7 @@ export PYTHONPATH=$ORT_PYTHON_HOME:${PYTHONPATH}
 ```
 
 ## Configuration options
-Model compilation by TVM inside ONNX runtime can be controlled by provider options:
+STVM Executor Provider can be configured with the following provider options:
 ```
 po = [dict(target=client_target,
            target_host=client_target_host,
@@ -70,15 +71,15 @@ stvm_session = onnxruntime.InferenceSession(model_path, providers=["StvmExecutio
 - `target` and `target_host` are strings like in TVM (e.g. "llvm --mcpu=avx2")
 - `opt_level` is TVM optimization level. It is 3 by default
 - `freeze_weights` means that all model weights are kept on compilation stage otherwise they are downloaded each inference. True is recommended value for the best performance. It is true by default.
-- `tuning_file_path` is path to AutoTVM tuning file which gives specifications for given model and target for the best performance.
-- TVM supports models with fixed graph only. If you have model with unknown dimensions in input shape excluding batch size you can insert fixed values by `input_names` and `input_shapes` provider options. Due to specific of provider options parser inside ORT they are string with the following format:
+- `tuning_file_path` is path to Apache TVM tuning file which gives specifications for given model and target for the best performance.
+- TVM supports models with fixed graph only. If you have model with unknown dimensions in input shapes (excluding batch size) you can insert fixed values by `input_names` and `input_shapes` provider options. Due to specific of provider options parser inside ORT they are string with the following format:
 ```
 input_names = "input_1 input_2"
 input_shapes = "[1 3 224 224] [1 2]"
 ```
 
 ## Performance Tuning
-As it was said above for the best model performance the tuning log file can be used. But due to some preprocessing of onnx model inside ONNX runtime before TVM gets it there can be differences between tuned model and obtained one. To avoid ONNX runtime preprocessing stage the session options can be used:
+As it was said above for the best model performance the tuning log file can be used. But due to some preprocessing of onnx model inside ONNX runtime before TVM gets it there can be differences between tuned model and obtained one. To turn off ONNX runtime preprocessing stage the session options can be used:
 ```
 so = onnxruntime.SessionOptions()
 so.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_DISABLE_ALL
@@ -90,9 +91,8 @@ stvm_session = onnxruntime.InferenceSession(model_path, sess_options=so, provide
 There is hyperlink to python notebook with ResNet50 inference.
 
 ## Known issues
-- Now ONNX runtime can be build on UNIX/Linux system.
-- TVM strongly follows to ops supported by ONNX, but can not support some newest ones.
-- There can be issue related to compatibility of onnx and Google protobuf. `AttributeError: module 'google.protobuf.internal.containers' has no attribute 'MutableMapping'` error can be caught during `import onnx` in any python scripts for protobuf version >= 3.19.0 and onnx version <= 1.8.1. To resolve the issue Google protobuf and onnx can be reinstalled separately or together due to conflict between onnx and protobuf versions:
+- At this moment, EP was verified only on UNIX/Linux systems 
+- There can be issue related with compatibility of ONNX and Google protobuf. `AttributeError: module 'google.protobuf.internal.containers' has no attribute 'MutableMapping'` error can be caught during `import onnx` in any python scripts for protobuf version >= 3.19.0 and onnx version <= 1.8.1. To resolve the issue Google protobuf and onnx can be reinstalled separately or together due to conflict between onnx and protobuf versions:
 ```
 pip3 uninstall onnx -y
 pip3 install onnx==1.10.1
