@@ -14,8 +14,8 @@
 Some description
 
 ## Build
-There are two steps to build ONNX runtime with STVM EP. Initially TVM should be build, after that ONNX runtime should.
-Important note is that both TVM and ORT with STVM use python API, therefore the python packages shoud be reinstall or PYTHONPATH should be changed accordingly for corкect work.
+There are two steps to build ONNX runtime with STVM EP. Initially, Apache TVM should be built, and then ONNX runtime .
+Important note is that both TVM and ORT with STVM use Python API, therefore the python packages shoud be reinstall or PYTHONPATH should be updated accordingly for correct work.
 
 ### Prerequisites
 Initially TVM and it's dependencies should be installed:<br />
