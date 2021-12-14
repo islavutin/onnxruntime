@@ -1174,6 +1174,22 @@ if (onnxruntime_USE_ROCM)
 endif()
 
 if (onnxruntime_USE_STVM)
+  set(TVM_BINARY_DIR ${onnxruntime_STVM_HOME}/build2)
+
+  # Build TVM as external project
+  include(ExternalProject)
+  ExternalProject_Add(tvm_update
+          PREFIX ${TVM_BINARY_DIR}
+          SOURCE_DIR ${onnxruntime_STVM_HOME}
+          BINARY_DIR ${TVM_BINARY_DIR}
+          CMAKE_ARGS
+              -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+              -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
+              -DCMAKE_SYSTEM_VERSION=${CMAKE_SYSTEM_VERSION}
+              -DUSE_LLVM=ON
+          INSTALL_COMMAND ""  # Passing an empty string makes the install step do nothing.
+          )
+
   add_definitions(-DUSE_STVM=1)
 
   file (GLOB_RECURSE onnxruntime_providers_stvm_cc_srcs CONFIGURE_DEPENDS
@@ -1182,6 +1198,7 @@ if (onnxruntime_USE_STVM)
     )
   source_group(TREE ${ONNXRUNTIME_ROOT}/core FILES ${onnxruntime_providers_stvm_cc_srcs})
   onnxruntime_add_static_library(onnxruntime_providers_stvm ${onnxruntime_providers_stvm_cc_srcs})
+  add_dependencies(onnxruntime_providers_stvm tvm_update)
 
   if ( CMAKE_COMPILER_IS_GNUCC )
     target_compile_options(onnxruntime_providers_stvm PRIVATE -Wno-unused-parameter -Wno-missing-field-initializers)
@@ -1202,9 +1219,9 @@ if (onnxruntime_USE_STVM)
       onnxruntime_framework
   )
   if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    target_link_libraries(onnxruntime_providers_stvm PRIVATE ${onnxruntime_STVM_HOME}/build/libtvm.dylib)
+    target_link_libraries(onnxruntime_providers_stvm PRIVATE ${TVM_BINARY_DIR}/libtvm.dylib)
   else()
-    target_link_libraries(onnxruntime_providers_stvm PRIVATE ${onnxruntime_STVM_HOME}/build/libtvm.so)
+    target_link_libraries(onnxruntime_providers_stvm PRIVATE ${TVM_BINARY_DIR}/libtvm.so)
   endif()
 
   set_target_properties(onnxruntime_providers_stvm PROPERTIES FOLDER "ONNXRuntime")
